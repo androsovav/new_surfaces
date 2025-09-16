@@ -8,9 +8,7 @@ from merit import rms_merit
 def coordinate_descent_thicknesses(
     stack: Stack,
     wavelengths: np.ndarray,
-    target: np.ndarray,
-    sigma: np.ndarray,
-    kind: str = "R",
+    targets: dict,
     pol: str = "s",
     theta_inc: float = 0.0,
     step_rel: float = 0.1,
@@ -20,11 +18,11 @@ def coordinate_descent_thicknesses(
     d_max: float | None = None,
 ) -> Tuple[Stack, float]:
     """
-    Простейшая локальная оптимизация толщин: координатный спуск с уменьшением шага.
+    Координатный спуск с ограничениями по толщине.
     """
     layers = [l for l in stack.layers]
     base = Stack(layers=layers, n_inc=stack.n_inc, n_sub=stack.n_sub)
-    mf = rms_merit(base, wavelengths, target, sigma, kind=kind, pol=pol, theta_inc=theta_inc)
+    mf = rms_merit(base, wavelengths, targets, pol=pol, theta_inc=theta_inc)
     step = step_rel
 
     def clamp(d):
@@ -39,7 +37,7 @@ def coordinate_descent_thicknesses(
             for sgn in (+1, -1):
                 layers[i].d = clamp(d0 * (1.0 + sgn * step))
                 test = Stack(layers=layers, n_inc=stack.n_inc, n_sub=stack.n_sub)
-                mf_new = rms_merit(test, wavelengths, target, sigma, kind=kind, pol=pol, theta_inc=theta_inc)
+                mf_new = rms_merit(test, wavelengths, targets, pol=pol, theta_inc=theta_inc)
                 if mf_new < mf:
                     mf = mf_new
                     improved = True
