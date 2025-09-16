@@ -1,82 +1,79 @@
 # main.py
+import time
 import numpy as np
 from design import make_stack
-from targets import target_AR, target_bandpass, combine_targets
+from targets import target_AR, combine_targets
 from merit import rms_merit
 from metrics import layer_count, total_optical_thickness
-from evolution import random_starts_search
+from needle import needle_cycle
 
-def demo():
-    wl = np.linspace(450e-9, 650e-9, 301)
-
-    # материалы
+def demo_compare_speed():
+    # Упрощённые параметры для быстрого теста
+    wl = np.linspace(500e-9, 600e-9, 401)   # 81 точка вместо 301
     n_air = 1.0
     n_sub = 1.52
     nH, nL = 2.35, 1.45
 
-    # цель: R минимально + T максимально в диапазоне
-    R_target = target_AR(wl, R_target=0.0, sigma=0.02)
-    T_target = target_bandpass(wl, [(450e-9, 650e-9)], sigma_pass=0.02, sigma_stop=0.02)
-    targets = combine_targets(R_target, T_target)
+    # старт: 1 период HL на 550 нм
+    stack0 = make_stack(n_inc=n_air, n_sub=n_sub, nH=nH, nL=nL, periods=1, quarter_at=550e-9)
 
-    # кандидаты для иглы
+    # цель: AR → минимизируем отражение (только R для простоты и скорости)
+    targets = combine_targets(target_AR(wl, R_target=0.0, sigma=0.03))
+
+    # кандидаты материалов для «иглы»
     n_cands = [nH, nL]
 
-    # параметры ограничений и угла/поляризации
-    theta_deg = 30.0          # угол падения, градусы
-    theta_inc = np.deg2rad(theta_deg)
-    pol = "u"                 # неполяризованный (усреднение s/p)
-
-    # случайные старты + последовательная эволюция
-    best_stack, info = random_starts_search(
-        starts=5,
-        n_inc=n_air, n_sub=n_sub, nH=nH, nL=nL,
-        wl0=550e-9,
-        N_layers_range=(4, 10),
-        d_min=0.5e-9, d_max=200e-9,
+    common_kwargs = dict(
         wavelengths=wl,
         targets=targets,
         n_candidates=n_cands,
-        pol=pol, theta_inc=theta_inc,
-        evolution="sequential",
-        evolution_kwargs={"steps": 3, "step_growth": 1.05, "wl_ref_for_tot": 550e-9},
-        needle_kwargs={
-            "d_init": 2e-9, "d_eps": 5e-10,
-            "coord_step_rel": 0.25, "coord_min_step_rel": 0.01, "coord_iters": 60,
-            "max_steps": 15, "min_rel_improv": 1e-3,
-            "max_layers": 80, "max_tot_nmopt": 12000.0, "wl_ref_for_tot": 550e-9,
-        },
-        rng=np.random.default_rng(42),
+        pol="s",
+        theta_inc=0.0,
+        d_init=2e-9,
+        d_eps=5e-10,
+        coord_step_rel=0.25,
+        coord_min_step_rel=0.02,
+        coord_iters=0,         # <-- отключаем доводку
+        d_min=0.5e-9,
+        max_steps=3,           # <-- всего 3 шага
+        min_rel_improv=1e-2,   # <-- агрессивный стоп
+        max_layers=200,
+        max_tot_nmopt=1e9,
+        wl_ref_for_tot=550e-9,
+        verbose=False,
     )
 
-    final_mf = rms_merit(best_stack, wl, targets, pol=pol, theta_inc=theta_inc)
-    N = layer_count(best_stack)
-    TOT_nmopt = total_optical_thickness(best_stack, 550e-9) / 1e-9
+    # --- 1) Старый метод: дискретная P-карта ---
+    stack_discr = make_stack(n_inc=n_air, n_sub=n_sub, nH=nH, nL=nL, periods=10, quarter_at=550e-9)
+    t0 = time.perf_counter()
+    stack_discr, info_discr = needle_cycle(stack=stack_discr, pmap="discrete", **common_kwargs)
+    t1 = time.perf_counter()
 
-    print("=== RESULT ===")
-    print(f"Incidence angle: {theta_deg:.1f} deg, pol={pol}")
-    print(f"Layers (N): {N}")
-    print(f"TOT (nm-opt @550nm): {TOT_nmopt:.1f}")
-    print(f"Final MF: {final_mf:.4f}")
+    mf_discr = rms_merit(stack_discr, wl, targets, pol="s")
+    N_discr = layer_count(stack_discr)
+    TOT_discr = total_optical_thickness(stack_discr, 550e-9) / 1e-9
 
-    print("\n=== LOG (compact) ===")
-    for rec in info["history"]:
-        if rec["action"] == "init":
-            data = {"MF": round(rec["MF"], 4), "N": rec["N"], "TOT_nmopt": round(rec["TOT_nmopt"], 1)}
-            print(f"step {rec['step']:02d}: init | data={data}")
-        elif rec["action"] == "needle+optimize":
-            kind, idx = rec["pos"]
-            data = dict(MF_prev=round(rec["MF_prev"],4), MF=round(rec["MF"],4),
-                        rel_improv=round(rec["rel_improv"]*100,2),
-                        n_new=round(rec["n_new"],2),
-                        d_mf_pred=rec["d_mf_pred"],
-                        N=rec["N"], TOT_nmopt=round(rec["TOT_nmopt"],1))
-            print(f"step {rec['step']:02d}: add@{kind}[{idx}] | data={data}")
-        else:
-            data = {k: rec[k] for k in rec if k not in ["step","action"]}
-            print(f"step {rec['step']:02d}: {rec['action']} | data={data}")
+    # --- 2) Новый метод: аналитическая P-карта ---
+    stack_anal = make_stack(n_inc=n_air, n_sub=n_sub, nH=nH, nL=nL, periods=10, quarter_at=550e-9)
+    t2 = time.perf_counter()
+    stack_anal, info_anal = needle_cycle(stack=stack_anal, pmap="analytic", **common_kwargs)
+    t3 = time.perf_counter()
 
-    return best_stack, info
+    mf_anal = rms_merit(stack_anal, wl, targets, pol="s")
+    N_anal = layer_count(stack_anal)
+    TOT_anal = total_optical_thickness(stack_anal, 550e-9) / 1e-9
+
+    # печать результатов
+    print("=== DISCRETE P-map ===")
+    print(f"time: {t1 - t0:.3f} s | MF={mf_discr:.4f} | N={N_discr} | TOT={TOT_discr:.1f} nm-opt")
+    print("=== ANALYTIC P-map ===")
+    print(f"time: {t3 - t2:.3f} s | MF={mf_anal:.4f} | N={N_anal} | TOT={TOT_anal:.1f} nm-opt")
+
+    if (t1 - t0) > 0:
+        speedup = (t1 - t0) / max(t3 - t2, 1e-12)
+        print(f"Speedup (analytic / discrete): ×{speedup:.2f}")
+
+    return (stack_discr, info_discr), (stack_anal, info_anal)
 
 if __name__ == "__main__":
-    demo()
+    demo_compare_speed()
