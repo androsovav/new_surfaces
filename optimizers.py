@@ -18,7 +18,7 @@ def coordinate_descent_thicknesses(
     d_max: float | None = None,
 ) -> Tuple[Stack, float]:
     """
-    Координатный спуск с ограничениями по толщине.
+    Координатный спуск по толщинам с постепенным уменьшением шага.
     """
     layers = [l for l in stack.layers]
     base = Stack(layers=layers, n_inc=stack.n_inc, n_sub=stack.n_sub)
