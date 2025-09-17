@@ -1,8 +1,8 @@
-# design.py
+# src/design/design.py
 from __future__ import annotations
 from typing import List, Callable
 import numpy as np
-from optics import Layer, Stack
+from ..core.optics import Layer, Stack
 
 def make_stack(n_inc: float, n_sub: float, nH: float, nL: float, periods: int, quarter_at: float) -> Stack:
     dH = (quarter_at / (4.0 * nH))

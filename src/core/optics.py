@@ -1,4 +1,4 @@
-# optics.py
+# src/core/optics.py
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, List, Tuple, Literal, Union

@@ -1,7 +1,7 @@
-# checks.py
+# src/design/checks.py
 from __future__ import annotations
 import numpy as np
-from optics import RT, Stack
+from ..core.optics import RT, Stack
 
 def energy_check(stack: Stack, wavelengths: np.ndarray, theta_inc: float = 0.0, pol: str = "u") -> float:
     """

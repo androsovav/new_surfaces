@@ -1,20 +1,25 @@
-# evolution.py
+# src/algorithms/evolution.py
 from __future__ import annotations
 import numpy as np
 from typing import Dict, Any, List, Tuple
-from optics import Stack, Layer
-from metrics import total_optical_thickness, layer_count
-from needle import needle_cycle
-from design import random_start_stack
+from ..core.optics import Stack, Layer
+from ..core.metrics import total_optical_thickness, layer_count
+from .needle import needle_cycle
+from ..design.design import random_start_stack
 
-def _scale_all_layers(stack: Stack, scale: float, d_min: float | None, d_max: float | None) -> Stack:
+
+def _scale_all_layers(stack: Stack, scale: float,
+                      d_min: float | None, d_max: float | None) -> Stack:
     new = []
     for L in stack.layers:
         d = L.d * scale
-        if d_min is not None: d = max(d, d_min)
-        if d_max is not None: d = min(d, d_max)
+        if d_min is not None:
+            d = max(d, d_min)
+        if d_max is not None:
+            d = min(d, d_max)
         new.append(Layer(n=L.n, d=d))
     return Stack(layers=new, n_inc=stack.n_inc, n_sub=stack.n_sub)
+
 
 def gradual_evolution(
     stack: Stack,
@@ -36,19 +41,20 @@ def gradual_evolution(
     best_hist: List[Dict[str, Any]] = []
     best_mf = float("inf")
 
-    current = stack
-    # первый прогон
-    current, info = needle_cycle(current, wavelengths, targets, n_candidates,
+    current, info = needle_cycle(stack, wavelengths, targets, n_candidates,
                                  pol=pol, theta_inc=theta_inc,
-                                 d_min=d_min, d_max=d_max, wl_ref_for_tot=wl_ref_for_tot,
+                                 d_min=d_min, d_max=d_max,
+                                 wl_ref_for_tot=wl_ref_for_tot,
                                  **needle_kwargs)
-    best_stack, best_hist, best_mf = current, info["history"], info["history"][-1].get("MF", info["history"][0]["MF"])
+    best_stack, best_hist = current, info["history"]
+    best_mf = best_hist[-1].get("MF", best_hist[0]["MF"])
 
     for g in growth_factors:
         current = _scale_all_layers(current, g, d_min, d_max)
         current, info = needle_cycle(current, wavelengths, targets, n_candidates,
                                      pol=pol, theta_inc=theta_inc,
-                                     d_min=d_min, d_max=d_max, wl_ref_for_tot=wl_ref_for_tot,
+                                     d_min=d_min, d_max=d_max,
+                                     wl_ref_for_tot=wl_ref_for_tot,
                                      **needle_kwargs)
         mf = info["history"][-1].get("MF", info["history"][0]["MF"])
         if mf < best_mf:
@@ -57,6 +63,7 @@ def gradual_evolution(
             best_hist = info["history"]
 
     return best_stack, {"history": best_hist}
+
 
 def sequential_evolution(
     stack: Stack,
@@ -81,15 +88,17 @@ def sequential_evolution(
         current = _scale_all_layers(current, step_growth, d_min, d_max)
         current, info = needle_cycle(current, wavelengths, targets, n_candidates,
                                      pol=pol, theta_inc=theta_inc,
-                                     d_min=d_min, d_max=d_max, wl_ref_for_tot=wl_ref_for_tot,
+                                     d_min=d_min, d_max=d_max,
+                                     wl_ref_for_tot=wl_ref_for_tot,
                                      **needle_kwargs)
         history_all.extend(info["history"])
     return current, {"history": history_all}
 
+
 def random_starts_search(
     starts: int,
     n_inc: float, n_sub: float, nH: float, nL: float,
-    wl0: float, N_layers_range: tuple[int,int],
+    wl0: float, N_layers_range: tuple[int, int],
     d_min: float, d_max: float,
     wavelengths: np.ndarray,
     targets: dict,
@@ -107,16 +116,16 @@ def random_starts_search(
     evolution_kwargs = evolution_kwargs or {}
     needle_kwargs = needle_kwargs or {}
 
-    # удаляем дубликат wl_ref_for_tot из evolution_kwargs
-    evolution_kwargs.pop("wl_ref_for_tot", None)
+    evolution_kwargs.pop("wl_ref_for_tot", None)  # избегаем дубликата
 
     best_stack: Stack | None = None
     best_hist: List[Dict[str, Any]] = []
     best_mf = float("inf")
 
     for _ in range(starts):
-        N_random = rng.integers(N_layers_range[0], N_layers_range[1]+1)
-        stack0 = random_start_stack(n_inc, n_sub, nH, nL, wl0, int(N_random), d_min, d_max, rng=rng)
+        N_random = rng.integers(N_layers_range[0], N_layers_range[1] + 1)
+        stack0 = random_start_stack(n_inc, n_sub, nH, nL,
+                                    wl0, int(N_random), d_min, d_max, rng=rng)
 
         if evolution == "sequential":
             st, info = sequential_evolution(stack0, wavelengths, targets, n_candidates,
@@ -131,7 +140,8 @@ def random_starts_search(
         else:
             st, info = needle_cycle(stack0, wavelengths, targets, n_candidates,
                                     pol=pol, theta_inc=theta_inc,
-                                    d_min=d_min, d_max=d_max, **needle_kwargs)
+                                    d_min=d_min, d_max=d_max,
+                                    **needle_kwargs)
 
         mf = info["history"][-1].get("MF", info["history"][0]["MF"])
         if mf < best_mf:

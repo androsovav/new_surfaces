@@ -1,8 +1,8 @@
-# merit.py
+# src/core/merit.py
 from __future__ import annotations
 import numpy as np
 from typing import Literal
-from optics import Stack, RT, rt_amplitudes
+from .optics import Stack, RT, rt_amplitudes
 
 TargetKind = Literal["R", "T", "phase_t", "phase_r"]
 
@@ -18,12 +18,6 @@ def rms_merit(
 ) -> float:
     """
     Универсальная RMS-мерит функция для многокритериальных целей.
-    targets = {
-       "R": {"target": ..., "sigma": ...},
-       "T": {"target": ..., "sigma": ...},
-       "phase_t": {"target": ..., "sigma": ...},  # поддержка для pol="s"|"p"
-       "phase_r": {"target": ..., "sigma": ...},
-    }
     """
     errs = []
 
@@ -41,7 +35,7 @@ def rms_merit(
             raise ValueError("Фазовые цели нельзя задавать при pol='u'; выберите 's' или 'p'.")
         r, t = [], []
         for wl in wavelengths:
-            ri, ti = rt_amplitudes(stack, float(wl), theta_inc, pol)  # амплитуды выбранной поляризации
+            ri, ti = rt_amplitudes(stack, float(wl), theta_inc, pol)
             r.append(ri); t.append(ti)
         r = np.array(r); t = np.array(t)
         if "phase_t" in targets:

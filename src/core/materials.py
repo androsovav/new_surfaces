@@ -1,4 +1,4 @@
-# materials.py
+# src/core/materials.py
 from __future__ import annotations
 from typing import Callable
 

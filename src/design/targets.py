@@ -1,4 +1,4 @@
-# targets.py
+# src/design/targets.py
 from __future__ import annotations
 import numpy as np
 from typing import Tuple
@@ -23,7 +23,6 @@ def target_low_reflect(wavelengths: np.ndarray,
                        R_val=0.01, sigma=0.01):
     target = np.full_like(wavelengths, 1.0, dtype=float)
     sigmaA = np.full_like(wavelengths, 1.0, dtype=float)
-    # зададим цель по отражению R≈R_val в bands
     R = np.full_like(wavelengths, R_val, dtype=float)
     S = np.full_like(wavelengths, sigma, dtype=float)
     mask = np.zeros_like(wavelengths, dtype=bool)
@@ -35,8 +34,5 @@ def combine_targets(*targets: dict) -> dict:
     combined = {}
     for t in targets:
         for k, v in t.items():
-            if k in combined:
-                # если ключ повторяется, объединим по правилу "последний перезаписывает"
-                pass
             combined[k] = v
     return combined

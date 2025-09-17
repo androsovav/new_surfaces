@@ -1,26 +1,22 @@
 # main.py
-import time
 import numpy as np
-from design import make_stack
-from targets import target_AR, combine_targets
-from merit import rms_merit
-from metrics import layer_count, total_optical_thickness
-from needle import needle_cycle
+from src.design.design import make_stack
+from src.design.targets import target_AR, combine_targets
+from src.algorithms.needle import needle_cycle
+from src.algorithms.evolution import random_starts_search
+from src.engine.report import print_report
 
-def demo_compare_speed():
-    # Упрощённые параметры для быстрого теста
-    wl = np.linspace(500e-9, 600e-9, 401)   # 81 точка вместо 301
+
+def run_needle_cycle():
+    print("=== ANALYTIC P-map (single run) ===")
+    wl = np.linspace(500e-9, 600e-9, 101)
     n_air = 1.0
     n_sub = 1.52
     nH, nL = 2.35, 1.45
 
-    # старт: 1 период HL на 550 нм
-    stack0 = make_stack(n_inc=n_air, n_sub=n_sub, nH=nH, nL=nL, periods=1, quarter_at=550e-9)
-
-    # цель: AR → минимизируем отражение (только R для простоты и скорости)
+    stack0 = make_stack(n_inc=n_air, n_sub=n_sub, nH=nH, nL=nL,
+                        periods=1, quarter_at=550e-9)
     targets = combine_targets(target_AR(wl, R_target=0.0, sigma=0.03))
-
-    # кандидаты материалов для «иглы»
     n_cands = [nH, nL]
 
     common_kwargs = dict(
@@ -33,47 +29,47 @@ def demo_compare_speed():
         d_eps=5e-10,
         coord_step_rel=0.25,
         coord_min_step_rel=0.02,
-        coord_iters=0,         # <-- отключаем доводку
+        coord_iters=3,
         d_min=0.5e-9,
-        max_steps=3,           # <-- всего 3 шага
-        min_rel_improv=1e-2,   # <-- агрессивный стоп
+        max_steps=5,
+        min_rel_improv=1e-2,
         max_layers=200,
         max_tot_nmopt=1e9,
         wl_ref_for_tot=550e-9,
-        verbose=False,
+        verbose=True,
     )
 
-    # --- 1) Старый метод: дискретная P-карта ---
-    stack_discr = make_stack(n_inc=n_air, n_sub=n_sub, nH=nH, nL=nL, periods=10, quarter_at=550e-9)
-    t0 = time.perf_counter()
-    stack_discr, info_discr = needle_cycle(stack=stack_discr, pmap="discrete", **common_kwargs)
-    t1 = time.perf_counter()
+    stack, info = needle_cycle(stack=stack0, pmap="analytic", **common_kwargs)
+    print_report(stack, wl, targets, pol="s", wl_ref=550e-9,
+                 history=info.get("history"))
 
-    mf_discr = rms_merit(stack_discr, wl, targets, pol="s")
-    N_discr = layer_count(stack_discr)
-    TOT_discr = total_optical_thickness(stack_discr, 550e-9) / 1e-9
 
-    # --- 2) Новый метод: аналитическая P-карта ---
-    stack_anal = make_stack(n_inc=n_air, n_sub=n_sub, nH=nH, nL=nL, periods=10, quarter_at=550e-9)
-    t2 = time.perf_counter()
-    stack_anal, info_anal = needle_cycle(stack=stack_anal, pmap="analytic", **common_kwargs)
-    t3 = time.perf_counter()
+def run_random_search():
+    print("\n=== RANDOM STARTS SEARCH (with evolution) ===")
+    wl = np.linspace(500e-9, 600e-9, 101)
+    n_air = 1.0
+    n_sub = 1.52
+    nH, nL = 2.35, 1.45
 
-    mf_anal = rms_merit(stack_anal, wl, targets, pol="s")
-    N_anal = layer_count(stack_anal)
-    TOT_anal = total_optical_thickness(stack_anal, 550e-9) / 1e-9
+    targets = combine_targets(target_AR(wl, R_target=0.0, sigma=0.03))
+    n_cands = [nH, nL]
 
-    # печать результатов
-    print("=== DISCRETE P-map ===")
-    print(f"time: {t1 - t0:.3f} s | MF={mf_discr:.4f} | N={N_discr} | TOT={TOT_discr:.1f} nm-opt")
-    print("=== ANALYTIC P-map ===")
-    print(f"time: {t3 - t2:.3f} s | MF={mf_anal:.4f} | N={N_anal} | TOT={TOT_anal:.1f} nm-opt")
+    stack, info = random_starts_search(
+        starts=5,  # число случайных стартов
+        n_inc=n_air, n_sub=n_sub, nH=nH, nL=nL,
+        wl0=550e-9, N_layers_range=(4, 8),
+        d_min=0.5e-9, d_max=50e-9,
+        wavelengths=wl, targets=targets, n_candidates=n_cands,
+        pol="s", theta_inc=0.0,
+        evolution="sequential",  # sequential | gradual | none
+        evolution_kwargs=dict(steps=2, step_growth=1.05),
+        needle_kwargs=dict(coord_iters=3),
+    )
 
-    if (t1 - t0) > 0:
-        speedup = (t1 - t0) / max(t3 - t2, 1e-12)
-        print(f"Speedup (analytic / discrete): ×{speedup:.2f}")
+    print_report(stack, wl, targets, pol="s", wl_ref=550e-9,
+                 history=info.get("history"))
 
-    return (stack_discr, info_discr), (stack_anal, info_anal)
 
 if __name__ == "__main__":
-    demo_compare_speed()
+    run_needle_cycle()
+    run_random_search()

@@ -1,6 +1,6 @@
-# metrics.py
+# src/core/metrics.py
 from __future__ import annotations
-from optics import Stack, _n_of
+from .optics import Stack, _n_of
 
 def layer_count(stack: Stack) -> int:
     return len(stack.layers)

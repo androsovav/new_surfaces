@@ -1,9 +1,9 @@
-# optimizers.py
+# src/algorithms/optimizers.py
 from __future__ import annotations
 import numpy as np
 from typing import Tuple
-from optics import Stack
-from merit import rms_merit
+from ..core.optics import Stack
+from ..core.merit import rms_merit
 
 def coordinate_descent_thicknesses(
     stack: Stack,
