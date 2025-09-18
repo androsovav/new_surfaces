@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from typing import Callable, List, Tuple, Literal, Union
 import numpy as np
 
-Pol = Literal["s", "p", "u"]  # u = unpolarized average
-NType = Union[float, complex, Callable[[float], complex]]
+Pol = Literal["s", "p", "u"]  # поляризация. u - неполяризованный свет.
+NType = Union[float, complex, Callable[[float], complex]]   # показатель преломления среды. Может быть действительным (float), комплексным (complex), и задаваться функцией длины волны
 
 @dataclass
 class Layer:
@@ -19,9 +19,15 @@ class Stack:
     n_sub: NType      # n подложки (число/функция)
 
 def _n_of(nspec: NType, wl: float) -> complex:
+    """
+    Функция, которая принимает на вход NType и возвращает одно комплексное значение показателя преломления среды
+    """
     return complex(nspec(wl)) if callable(nspec) else complex(nspec)
 
 def _cos_theta_in_layer(n_layer: complex, n_incident: complex, theta_incident: float) -> complex:
+    """
+    Функция расчета косинуса угла распространения света в слое по закону Снеллиуса
+    """
     if theta_incident == 0.0:
         return 1.0
     sin_ti = np.sin(theta_incident)
@@ -29,9 +35,15 @@ def _cos_theta_in_layer(n_layer: complex, n_incident: complex, theta_incident: f
     return np.sqrt(1.0 - sin_tj**2)
 
 def _q_parameter(n: complex, cos_theta: complex, pol: Literal["s","p"]) -> complex:
+    """
+    Функция расчета q-параметра
+    """
     return n * cos_theta if pol == "s" else (cos_theta / n)
 
 def _M_layer(nj: complex, dj: float, wl: float, cosj: complex, pol: Literal["s","p"]) -> np.ndarray:
+    """
+    Функция расчета матрицы одного слоя
+    """
     phi = 2.0 * np.pi * nj * dj * cosj / wl
     c, s = np.cos(phi), np.sin(phi)
     q = _q_parameter(nj, cosj, pol)
@@ -39,9 +51,12 @@ def _M_layer(nj: complex, dj: float, wl: float, cosj: complex, pol: Literal["s",
                      [1j * q * s, c]], dtype=complex)
 
 def _M_stack(stack: Stack, wl: float, theta_inc: float, pol: Literal["s","p"]) -> Tuple[np.ndarray, complex, complex]:
+    """
+    Функция расчета суммарной матрицы всех слоев
+    """
     n_in  = _n_of(stack.n_inc, wl)
     n_sub = _n_of(stack.n_sub, wl)
-    cos_in  = _cos_theta_in_layer(n_in,  n_in,  theta_inc)
+    cos_in  = np.cos(theta_inc)
     cos_sub = _cos_theta_in_layer(n_sub, n_in,  theta_inc)
     M = np.eye(2, dtype=complex)
     for L in stack.layers:

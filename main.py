@@ -1,5 +1,6 @@
 # main.py
 import numpy as np
+import time
 from src.design.design import make_stack
 from src.design.targets import target_AR, combine_targets
 from src.algorithms.needle import needle_cycle
@@ -39,9 +40,12 @@ def run_needle_cycle():
         verbose=True,
     )
 
+    t0 = time.perf_counter()
     stack, info = needle_cycle(stack=stack0, pmap="analytic", **common_kwargs)
+    elapsed = time.perf_counter() - t0
+
     print_report(stack, wl, targets, pol="s", wl_ref=550e-9,
-                 history=info.get("history"))
+                 history=info.get("history"), elapsed=elapsed)
 
 
 def run_random_search():
@@ -54,6 +58,7 @@ def run_random_search():
     targets = combine_targets(target_AR(wl, R_target=0.0, sigma=0.03))
     n_cands = [nH, nL]
 
+    t0 = time.perf_counter()
     stack, info = random_starts_search(
         starts=5,  # число случайных стартов
         n_inc=n_air, n_sub=n_sub, nH=nH, nL=nL,
@@ -65,9 +70,10 @@ def run_random_search():
         evolution_kwargs=dict(steps=2, step_growth=1.05),
         needle_kwargs=dict(coord_iters=3),
     )
+    elapsed = time.perf_counter() - t0
 
     print_report(stack, wl, targets, pol="s", wl_ref=550e-9,
-                 history=info.get("history"))
+                 history=info.get("history"), elapsed=elapsed)
 
 
 if __name__ == "__main__":

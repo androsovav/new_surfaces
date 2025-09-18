@@ -13,6 +13,7 @@ def summarize_result(
     pol: str,
     wl_ref: float,
     history: List[Dict[str, Any]] | None = None,
+    elapsed: float | None = None,   # добавлено поле для времени
 ) -> str:
     """
     Формирует строковый отчёт о результате оптимизации.
@@ -25,10 +26,9 @@ def summarize_result(
     lines.append(f"MF={mf:.4f} | N={N} | TOT={TOT:.1f} nm-opt")
     if history:
         lines.append(f"History length: {len(history)} (MF first={history[0]['MF']:.4f}, last={history[-1]['MF']:.4f})")
+    if elapsed is not None:
+        lines.append(f"time: {elapsed:.3f} s")
     return "\n".join(lines)
 
 def print_report(*args, **kwargs) -> None:
-    """
-    Упрощённый вывод в stdout.
-    """
     print(summarize_result(*args, **kwargs))

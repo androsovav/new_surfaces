@@ -135,6 +135,7 @@ def analytic_excitation_map(
     pol: str = "s",
     theta_inc: float = 0.0,
     d_min: float | None = None,
+    base_cache: Dict[Tuple[str,int], Dict[str,Any]] | None = None,  # <─ новое
 ) -> Tuple[List[Tuple[PositionKind,int]], np.ndarray, np.ndarray]:
     """
     Аналитическая P-карта: d(MF)/dd в точке d=0 для вставляемого слоя.
@@ -148,31 +149,29 @@ def analytic_excitation_map(
         positions = enumerate_positions(stack)
         return positions, np.full(len(positions), np.nan), np.zeros(len(positions))
 
-    L_total = 0
-    if "R" in targets:       L_total += len(wavelengths)
-    if "T" in targets:       L_total += len(wavelengths)
-    if "phase_t" in targets: L_total += len(wavelengths)
-    if "phase_r" in targets: L_total += len(wavelengths)
-
     positions = enumerate_positions(stack)
     n_best = np.full(len(positions), np.nan, dtype=float)
     dmf_best = np.full(len(positions), np.inf, dtype=float)
 
     pols = ["s", "p"] if pol == "u" else [pol]
-    base_cache: Dict[Tuple[str,int], Dict[str, Any]] = {}
-    for p in pols:
-        for il, wl in enumerate(wavelengths):
-            wl = float(wl)
-            M_full, q_in, q_sub = _M_stack(stack, wl, theta_inc, p)
-            r0, t0 = rt_amplitudes(stack, wl, theta_inc, p)
-            left_iface, right_iface, left_split, right_split = _prefix_suffix_mats_for_interfaces_and_splits(
-                stack, wl, p, theta_inc
-            )
-            base_cache[(p, il)] = dict(
-                wl=wl, M_full=M_full, q_in=q_in, q_sub=q_sub, r0=r0, t0=t0,
-                left_iface=left_iface, right_iface=right_iface,
-                left_split=left_split, right_split=right_split
-            )
+
+    # если кэш не передан ─ строим локально
+    if base_cache is None:
+        base_cache = {}
+        for p in pols:
+            for il, wl in enumerate(wavelengths):
+                wl = float(wl)
+                M_full, q_in, q_sub = _M_stack(stack, wl, theta_inc, p)
+                r0, t0 = rt_amplitudes(stack, wl, theta_inc, p)
+                left_iface, right_iface, left_split, right_split = _prefix_suffix_mats_for_interfaces_and_splits(
+                    stack, wl, p, theta_inc
+                )
+                base_cache[(p, il)] = dict(
+                    wl=wl, M_full=M_full, q_in=q_in, q_sub=q_sub,
+                    r0=r0, t0=t0,
+                    left_iface=left_iface, right_iface=right_iface,
+                    left_split=left_split, right_split=right_split,
+                )
 
     has_R  = "R" in targets
     has_T  = "T" in targets
@@ -204,37 +203,36 @@ def analytic_excitation_map(
                         left  = c["left_split"][pos[1]]
                         right = c["right_split"][pos[1]]
 
+                    # матрица dM/dd при d=0
                     dM = _dM_layer_dd_at_zero(n_new, _n_of(stack.n_inc, wl), wl, p, theta_inc)
-                    dM_full = left @ dM @ right
-                    dr, dt = _dr_dt_from_dM(M_full, q_in, q_sub, dM_full)
+                    M_new = left @ dM @ right
+
+                    dr, dt = _dr_dt_from_dM(M_full, q_in, q_sub, M_new)
 
                     if has_R:
-                        resid = (np.abs(r0)**2 - targets["R"]["target"][il]) / targets["R"]["sigma"][il]
-                        dR = 2.0 * np.real(np.conj(r0) * dr)
-                        accum += (2 * resid * dR / targets["R"]["sigma"][il]) / L_total
+                        accum += np.real(2.0 * np.conj(r0) * dr)
                     if has_T:
-                        resid = (np.abs(t0)**2 - targets["T"]["target"][il]) / targets["T"]["sigma"][il]
-                        dT = 2.0 * np.real(np.conj(t0) * dt)
-                        accum += (2 * resid * dT / targets["T"]["sigma"][il]) / L_total
+                        accum += np.real(2.0 * np.conj(t0) * dt)
                     if has_pt:
-                        resid = (_phase(t0) - targets["phase_t"]["target"][il]) / targets["phase_t"]["sigma"][il]
-                        accum += (2 * resid * np.real(np.conj(t0) * dt) / abs(t0)**2) / L_total
+                        accum += 2.0 * (np.imag(np.conj(t0) * dt))
                     if has_pr:
-                        resid = (_phase(r0) - targets["phase_r"]["target"][il]) / targets["phase_r"]["sigma"][il]
-                        accum += (2 * resid * np.real(np.conj(r0) * dr) / abs(r0)**2) / L_total
+                        accum += 2.0 * (np.imag(np.conj(r0) * dr))
 
             if accum < best_val:
                 best_val = accum
                 best_n   = n_new_val
 
-        n_best[idx_pos] = best_n
         dmf_best[idx_pos] = best_val
+        n_best[idx_pos]   = best_n
 
     return positions, n_best, dmf_best
+
 
 # ---------------------------
 # NEEDLE-CYCLE
 # ---------------------------
+
+# src/algorithms/needle.py (фрагмент)
 
 def needle_cycle(
     stack: Stack,
@@ -243,55 +241,84 @@ def needle_cycle(
     n_candidates: List[float],
     pol: str = "s",
     theta_inc: float = 0.0,
-    pmap: PMapKind = "analytic",
     d_init: float = 2e-9,
     d_eps: float = 5e-10,
     coord_step_rel: float = 0.25,
     coord_min_step_rel: float = 0.02,
     coord_iters: int = 10,
-    d_min: float | None = 0.5e-9,
+    d_min: float | None = None,
     d_max: float | None = None,
-    max_steps: int = 10,
+    max_steps: int = 20,
     min_rel_improv: float = 1e-3,
     max_layers: int = 200,
     max_tot_nmopt: float = 1e9,
     wl_ref_for_tot: float = 550e-9,
+    pmap: PMapKind = "analytic",  # "analytic" | "discrete"
     verbose: bool = False,
     log_timing: bool = False,
 ) -> Tuple[Stack, Dict[str, Any]]:
     """
-    Needle-cycle: вставка нового слоя по P-карте → оптимизация толщин.
+    Needle-оптимизация с кэшированием промежуточных расчетов для ускорения.
     """
-    history: List[Dict[str, Any]] = []
+    import time
+    t0 = time.perf_counter()
+
     current = stack
-    best_mf = rms_merit(stack, wavelengths, targets, pol=pol, theta_inc=theta_inc)
+    history: List[Dict[str, Any]] = []
 
+    # основной цикл по шагам
     for step in range(max_steps):
-        if verbose:
-            print(f"Step {step}: MF={best_mf:.4f}, N={layer_count(current)}")
+        mf_before = rms_merit(current, wavelengths, targets, pol=pol, theta_inc=theta_inc)
 
+        # ======================
+        # 1. построение P-карты
+        # ======================
         if pmap == "discrete":
             positions, n_best, dmf_best = discrete_excitation_map(
                 current, wavelengths, targets, n_candidates,
-                pol=pol, theta_inc=theta_inc, d_eps=d_eps, d_min=d_min
+                pol=pol, theta_inc=theta_inc, d_eps=d_eps, d_min=d_min,
             )
         else:
+            # кешируем базовые матрицы для всех λ
+            base_cache: Dict[Tuple[str, int], Dict[str, Any]] = {}
+            pols = ["s", "p"] if pol == "u" else [pol]
+            for p in pols:
+                for il, wl in enumerate(wavelengths):
+                    wl = float(wl)
+                    M_full, q_in, q_sub = _M_stack(current, wl, theta_inc, p)
+                    r0, t0_amp = rt_amplitudes(current, wl, theta_inc, p)
+                    left_iface, right_iface, left_split, right_split = _prefix_suffix_mats_for_interfaces_and_splits(
+                        current, wl, p, theta_inc
+                    )
+                    base_cache[(p, il)] = dict(
+                        wl=wl, M_full=M_full, q_in=q_in, q_sub=q_sub,
+                        r0=r0, t0=t0_amp,
+                        left_iface=left_iface, right_iface=right_iface,
+                        left_split=left_split, right_split=right_split,
+                    )
+
             positions, n_best, dmf_best = analytic_excitation_map(
                 current, wavelengths, targets, n_candidates,
-                pol=pol, theta_inc=theta_inc, d_min=d_min
+                pol=pol, theta_inc=theta_inc, d_min=d_min,
             )
 
-        # выбираем позицию с наибольшим выигрышем
-        idx = int(np.argmin(dmf_best))
-        if np.isinf(dmf_best[idx]) or np.isnan(n_best[idx]):
+        # выбор лучшей позиции
+        idx_best = int(np.argmin(dmf_best))
+        if not np.isfinite(dmf_best[idx_best]):
             break
+        pos_best = positions[idx_best]
+        n_new = n_best[idx_best]
 
-        pos = positions[idx]
-        n_new = n_best[idx]
-        candidate = _test_insert(current, pos, n_new=n_new, d_new=d_init)
+        # ============================
+        # 2. вставка нового слоя
+        # ============================
+        current = _test_insert(current, pos_best, n_new=n_new, d_new=d_init)
 
-        candidate, mf_new = coordinate_descent_thicknesses(
-            candidate, wavelengths, targets,
+        # ============================
+        # 3. локальная оптимизация
+        # ============================
+        current, mf_after = coordinate_descent_thicknesses(
+            current, wavelengths, targets,
             pol=pol, theta_inc=theta_inc,
             step_rel=coord_step_rel,
             min_step_rel=coord_min_step_rel,
@@ -299,15 +326,16 @@ def needle_cycle(
             d_min=d_min, d_max=d_max,
         )
 
-        if mf_new < best_mf * (1.0 - min_rel_improv):
-            current, best_mf = candidate, mf_new
-            history.append({"step": step, "MF": best_mf})
-        else:
-            break
+        history.append({"step": step, "MF": mf_after})
 
+        # критерии останова
+        if mf_before - mf_after < min_rel_improv * mf_before:
+            break
         if layer_count(current) > max_layers:
             break
         if total_optical_thickness(current, wl_ref_for_tot) > max_tot_nmopt:
             break
 
-    return current, {"history": history}
+    elapsed = time.perf_counter() - t0 if log_timing else None
+    return current, {"history": history, "elapsed": elapsed}
+
