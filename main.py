@@ -14,9 +14,18 @@ def run_needle_cycle():
     n_air = 1.0
     n_sub = 1.52
     nH, nL = 2.35, 1.45
+    theta_inc=0.0
+    pol="s"
 
-    stack0 = make_stack(n_inc=n_air, n_sub=n_sub, nH=nH, nL=nL,
-                        periods=1, quarter_at=550e-9)
+    stack0 = make_stack(n_inc=n_air, 
+                        n_sub=n_sub, 
+                        nH=nH,
+                        nL=nL,
+                        theta_inc=theta_inc,
+                        wl=wl,
+                        pol=pol,
+                        periods=1, 
+                        quarter_at=550e-9)
     targets = combine_targets(target_AR(wl, R_target=0.0, sigma=0.03))
     n_cands = [nH, nL]
 
@@ -24,8 +33,8 @@ def run_needle_cycle():
         wavelengths=wl,
         targets=targets,
         n_candidates=n_cands,
-        pol="s",
-        theta_inc=0.0,
+        pol=pol,
+        theta_inc = theta_inc,
         d_init=2e-9,
         d_eps=5e-10,
         coord_step_rel=0.25,

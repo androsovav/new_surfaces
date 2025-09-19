@@ -1,16 +1,44 @@
 # src/design/design.py
 from __future__ import annotations
-from typing import List, Callable
+from typing import List, Callable, Literal
 import numpy as np
-from ..core.optics import Layer, Stack
+from ..core.optics import NType, n_of, Layer, Stack, cos_theta_in_layer, q_parameter, make_M
 
-def make_stack(n_inc: float, n_sub: float, nH: float, nL: float, periods: int, quarter_at: float) -> Stack:
+def make_stack(n_inc: NType, n_sub: NType, nH: NType, nL: NType, theta_inc: float, wl: float, pol: Literal["s","p"], periods: int, quarter_at: float) -> Stack:
     dH = (quarter_at / (4.0 * nH))
     dL = (quarter_at / (4.0 * nL))
     layers: List[Layer] = []
     for _ in range(periods):
-        layers.append(Layer(n=nH, d=dH))
-        layers.append(Layer(n=nL, d=dL))
+        n = n_of(nspec=nH, wl=wl)
+        cos_theta=np.cos(cos_theta_in_layer(n_layer=nH, n_incident=n_inc, theta_incident=theta_inc))
+        phi=2.0 * np.pi * n * dH * cos_theta / wl
+        sphi = np.sin(phi)
+        cphi = np.cos(phi)
+        q = q_parameter(n=n, cos_theta=cos_theta, pol=pol)
+        layers.append(Layer(n=n, 
+                            d=dH,
+                            cos_theta=cos_theta,
+                            phi=phi,
+                            sphi=sphi,
+                            cphi=cphi,
+                            q=q,
+                            M=make_M(sphi=sphi, cphi=cphi, q=q)))
+        n = n_of(nspec=nL, wl=wl)
+        cos_theta=np.cos(cos_theta_in_layer(n_layer=nL, n_incident=n_inc, theta_incident=theta_inc))
+        phi=2.0 * np.pi * n * dL * cos_theta / wl
+        sphi = np.sin(phi)
+        cphi = np.cos(phi)
+        q = q_parameter(n=n, cos_theta=cos_theta, pol=pol)
+        layers.append(Layer(n=n, 
+                            d=dL,
+                            cos_theta=cos_theta,
+                            phi=phi,
+                            sphi=sphi,
+                            cphi=cphi,
+                            q=q,
+                            M=make_M(sphi=sphi, cphi=cphi, q=q)))
+    prefix = np.array()
+    suffix = np.array()
     return Stack(layers=layers, n_inc=n_inc, n_sub=n_sub)
 
 def with_dispersion(n_func_H: Callable[[float], complex], n_func_L: Callable[[float], complex],

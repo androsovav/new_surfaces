@@ -4,7 +4,7 @@ import numpy as np
 from typing import List, Tuple, Literal, Dict, Any
 
 from ..core.optics import (
-    Stack, _M_layer, _cos_theta_in_layer, _q_parameter, _n_of,
+    Stack, _M_layer, cos_theta_in_layer, q_parameter, n_of,
     rt_amplitudes, _M_stack
 )
 from ..design.design import insert_layer, insert_with_split
@@ -41,30 +41,30 @@ def _prefix_suffix_mats_for_interfaces_and_splits(
       left_iface[k], right_iface[k]  для k=0..N
       left_split[i], right_split[i]  для i=0..N-1
     """
-    n_in = _n_of(stack.n_inc, wl)
+    n_in = n_of(stack.n_inc, wl)
     N = len(stack.layers)
 
     left_iface = [np.eye(2, dtype=complex)]
     for j in range(N):
         Lj = stack.layers[j]
-        nj = _n_of(Lj.n, wl)
-        cosj = _cos_theta_in_layer(nj, n_in, theta_inc)
+        nj = n_of(Lj.n, wl)
+        cosj = cos_theta_in_layer(nj, n_in, theta_inc)
         left_iface.append(left_iface[-1] @ _M_layer(nj, Lj.d, wl, cosj, pol))
 
     right_iface = [None] * (N + 1)
     right_iface[N] = np.eye(2, dtype=complex)
     for j in reversed(range(N)):
         Lj = stack.layers[j]
-        nj = _n_of(Lj.n, wl)
-        cosj = _cos_theta_in_layer(nj, n_in, theta_inc)
+        nj = n_of(Lj.n, wl)
+        cosj = cos_theta_in_layer(nj, n_in, theta_inc)
         right_iface[j] = _M_layer(nj, Lj.d, wl, cosj, pol) @ right_iface[j + 1]
 
     left_split = []
     right_split = []
     for i in range(N):
         Li = stack.layers[i]
-        ni = _n_of(Li.n, wl)
-        cosi = _cos_theta_in_layer(ni, n_in, theta_inc)
+        ni = n_of(Li.n, wl)
+        cosi = cos_theta_in_layer(ni, n_in, theta_inc)
         M_half = _M_layer(ni, Li.d * 0.5, wl, cosi, pol)
         left_split.append(left_iface[i] @ M_half)
         right_split.append(M_half @ right_iface[i + 1])
@@ -72,8 +72,8 @@ def _prefix_suffix_mats_for_interfaces_and_splits(
     return left_iface, right_iface, left_split, right_split
 
 def _dM_layer_dd_at_zero(n_new: complex, n_in: complex, wl: float, pol: str, theta_inc: float) -> np.ndarray:
-    cos_new = _cos_theta_in_layer(n_new, n_in, theta_inc)
-    q = _q_parameter(n_new, cos_new, pol)
+    cos_new = cos_theta_in_layer(n_new, n_in, theta_inc)
+    q = q_parameter(n_new, cos_new, pol)
     k = 2.0 * np.pi * n_new * cos_new / wl
     return np.array([[0.0+0.0j, 1j * k / q],
                      [1j * q * k, 0.0+0.0j]], dtype=complex)
@@ -204,7 +204,7 @@ def analytic_excitation_map(
                         right = c["right_split"][pos[1]]
 
                     # матрица dM/dd при d=0
-                    dM = _dM_layer_dd_at_zero(n_new, _n_of(stack.n_inc, wl), wl, p, theta_inc)
+                    dM = _dM_layer_dd_at_zero(n_new, n_of(stack.n_inc, wl), wl, p, theta_inc)
                     M_new = left @ dM @ right
 
                     dr, dt = _dr_dt_from_dM(M_full, q_in, q_sub, M_new)

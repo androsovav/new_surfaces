@@ -9,22 +9,30 @@ NType = Union[float, complex, Callable[[float], complex]]   # показател
 
 @dataclass
 class Layer:
-    n: NType          # число или функция n(λ)->complex
-    d: float          # физ. толщина (м)
+    n: NType                # число или функция n(λ)->complex
+    d: float                # физ. толщина (м)
+    cos_theta: complex      # косинус угла преломления
+    phi: complex            # фазовый набег
+    sphi: complex           # синус фи
+    cphi: complex           # косинус фи
+    q: complex
+    M: np.ndarray               # матрица слоя
 
 @dataclass
 class Stack:
     layers: List[Layer]
     n_inc: NType      # n внешней среды (число/функция)
     n_sub: NType      # n подложки (число/функция)
+    prefix: np.ndarray     # префиксное произведение
+    suffix: np.ndarray     # суффиксное произведение
 
-def _n_of(nspec: NType, wl: float) -> complex:
+def n_of(nspec: NType, wl: float) -> complex:
     """
     Функция, которая принимает на вход NType и возвращает одно комплексное значение показателя преломления среды
     """
     return complex(nspec(wl)) if callable(nspec) else complex(nspec)
 
-def _cos_theta_in_layer(n_layer: complex, n_incident: complex, theta_incident: float) -> complex:
+def cos_theta_in_layer(n_layer: complex, n_incident: complex, theta_incident: float) -> complex:
     """
     Функция расчета косинуса угла распространения света в слое по закону Снеллиуса
     """
@@ -34,7 +42,7 @@ def _cos_theta_in_layer(n_layer: complex, n_incident: complex, theta_incident: f
     sin_tj = (n_incident * sin_ti) / n_layer
     return np.sqrt(1.0 - sin_tj**2)
 
-def _q_parameter(n: complex, cos_theta: complex, pol: Literal["s","p"]) -> complex:
+def q_parameter(n: complex, cos_theta: complex, pol: Literal["s","p"]) -> complex:
     """
     Функция расчета q-параметра
     """
@@ -46,25 +54,29 @@ def _M_layer(nj: complex, dj: float, wl: float, cosj: complex, pol: Literal["s",
     """
     phi = 2.0 * np.pi * nj * dj * cosj / wl
     c, s = np.cos(phi), np.sin(phi)
-    q = _q_parameter(nj, cosj, pol)
+    q = q_parameter(nj, cosj, pol)
     return np.array([[c, 1j * s / q],
                      [1j * q * s, c]], dtype=complex)
+
+def make_M(sphi: float, cphi: float, q: complex) -> np.ndarray:
+    return np.array([[cphi, 1j * sphi / q],
+                     [1j * q * sphi, cphi]], dtype=complex)
 
 def _M_stack(stack: Stack, wl: float, theta_inc: float, pol: Literal["s","p"]) -> Tuple[np.ndarray, complex, complex]:
     """
     Функция расчета суммарной матрицы всех слоев
     """
-    n_in  = _n_of(stack.n_inc, wl)
-    n_sub = _n_of(stack.n_sub, wl)
+    n_in  = n_of(stack.n_inc, wl)
+    n_sub = n_of(stack.n_sub, wl)
     cos_in  = np.cos(theta_inc)
-    cos_sub = _cos_theta_in_layer(n_sub, n_in,  theta_inc)
+    cos_sub = cos_theta_in_layer(n_sub, n_in,  theta_inc)
     M = np.eye(2, dtype=complex)
     for L in stack.layers:
-        nj = _n_of(L.n, wl)
-        cosj = _cos_theta_in_layer(nj, n_in, theta_inc)
+        nj = n_of(L.n, wl)
+        cosj = cos_theta_in_layer(nj, n_in, theta_inc)
         M = M @ _M_layer(nj, L.d, wl, cosj, pol)
-    q_in  = _q_parameter(n_in,  cos_in,  pol)
-    q_sub = _q_parameter(n_sub, cos_sub, pol)
+    q_in  = q_parameter(n_in,  cos_in,  pol)
+    q_sub = q_parameter(n_sub, cos_sub, pol)
     return M, q_in, q_sub
 
 def rt_amplitudes(stack: Stack, wl: float, theta_inc: float = 0.0, pol: Literal["s","p"] = "s") -> Tuple[complex, complex]:
