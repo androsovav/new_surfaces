@@ -1,7 +1,7 @@
 # main.py
 import numpy as np
 import time
-from src.core.optics import n_of
+from src.core.optics import n_of, q_parameter, cos_theta_in_layer
 from src.design.design import make_stack
 from src.design.targets import target_AR, combine_targets
 from src.algorithms.needle import needle_cycle
@@ -13,16 +13,20 @@ def run_needle_cycle():
     print("=== ANALYTIC P-map (single run) ===")
     wl = np.linspace(500e-9, 600e-9, 101)
     quarter_at = 550e-9
+    n_inc = 1.0
+    n_sub = 1.52
     nH = 2.35
     nL = 1.45
     dH = (quarter_at / (4.0 * n_of(nspec=nH, wl=550e-9)))
     dL = (quarter_at / (4.0 * n_of(nspec=nL, wl=550e-9)))
     pol = "s"
     theta_inc=0.5
+    q_in = q_parameter(n_inc, np.cos(theta_inc), pol)
+    q_sub = q_parameter(n_sub, cos_theta_in_layer(n_sub, n_inc, theta_inc), pol)
     stack0 = make_stack(start_flag="H",
                     thickness = np.array([dH, dL]),
-                    n_inc=1.0, 
-                    n_sub=1.52, 
+                    n_inc=n_inc, 
+                    n_sub=n_sub, 
                     nH=2.35,
                     nL=1.45,
                     theta_inc=theta_inc,
@@ -37,6 +41,8 @@ def run_needle_cycle():
         n_candidates=n_cands,
         pol=pol,
         theta_inc = theta_inc,
+        q_in=q_in,
+        q_sub=q_sub,
         d_init=2e-9,
         d_eps=5e-10,
         coord_step_rel=0.25,
@@ -52,7 +58,7 @@ def run_needle_cycle():
     )
 
     t0 = time.perf_counter()
-    stack, info = needle_cycle(stack=stack0, pmap="analytic", **common_kwargs)
+    stack, info = needle_cycle(stack=stack0, **common_kwargs)
     elapsed = time.perf_counter() - t0
 
     print_report(stack, wl, targets, pol="s", wl_ref=550e-9,
@@ -88,4 +94,42 @@ def run_random_search():
 
 
 if __name__ == "__main__":
-    run_needle_cycle()
+    wl = np.linspace(500e-9, 600e-9, 2)
+    quarter_at = 550e-9
+    n_inc = 1.0
+    n_sub = 1.52
+    nH = 2.35
+    nL = 1.45
+    dH = (quarter_at / (4.0 * np.real(n_of(nspec=nH, wl=550e-9))))
+    dL = (quarter_at / (4.0 * np.real(n_of(nspec=nL, wl=550e-9))))
+    pol = "s"
+    theta_inc=0.5
+    q_in = q_parameter(n_inc, np.cos(theta_inc), pol)
+    q_sub = q_parameter(n_sub, cos_theta_in_layer(n_sub, n_inc, theta_inc), pol)
+    t0 = time.perf_counter()
+    stack0 = make_stack(start_flag="H",
+                    thickness = np.array([dH, dL]),
+                    n_inc=n_inc, 
+                    n_sub=n_sub, 
+                    nH=2.35,
+                    nL=1.45,
+                    theta_inc=theta_inc,
+                    wavelengths=np.linspace(500e-9, 600e-9, 1001),
+                    pol=pol)
+    print("time")
+    t1 = time.perf_counter()
+    print(t1-t0)
+    # print("stack0.M")
+    # print(stack0.M)
+    # print("stack0.layers")
+    # print(stack0.layers)
+    # print("stack0.n_inc")
+    # print(stack0.n_inc)
+    # print("stack0.n_sub")
+    # print(stack0.n_sub)
+    # print("stack0.prefix")
+    # print(stack0.prefix)
+    # print("stack0.suffix")
+    # print(stack0.suffix)
+    # print("stack0.wavelengths")
+    # print(stack0.wavelengths)

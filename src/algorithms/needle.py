@@ -4,8 +4,8 @@ import numpy as np
 from typing import List, Tuple, Literal, Dict, Any
 
 from ..core.optics import (
-    Stack, _M_layer, cos_theta_in_layer, q_parameter, n_of,
-    rt_amplitudes, _M_stack
+    Stack, make_M, cos_theta_in_layer, q_parameter, n_of,
+    rt_amplitudes
 )
 from ..design.design import insert_layer, insert_with_split
 from ..core.merit import rms_merit
@@ -49,7 +49,7 @@ def _prefix_suffix_mats_for_interfaces_and_splits(
         Lj = stack.layers[j]
         nj = n_of(Lj.n, wl)
         cosj = cos_theta_in_layer(nj, n_in, theta_inc)
-        left_iface.append(left_iface[-1] @ _M_layer(nj, Lj.d, wl, cosj, pol))
+        left_iface.append(left_iface[-1] @ make_M(nj, Lj.d, wl, cosj, pol))
 
     right_iface = [None] * (N + 1)
     right_iface[N] = np.eye(2, dtype=complex)
@@ -57,7 +57,7 @@ def _prefix_suffix_mats_for_interfaces_and_splits(
         Lj = stack.layers[j]
         nj = n_of(Lj.n, wl)
         cosj = cos_theta_in_layer(nj, n_in, theta_inc)
-        right_iface[j] = _M_layer(nj, Lj.d, wl, cosj, pol) @ right_iface[j + 1]
+        right_iface[j] = make_M(nj, Lj.d, wl, cosj, pol) @ right_iface[j + 1]
 
     left_split = []
     right_split = []
@@ -65,7 +65,7 @@ def _prefix_suffix_mats_for_interfaces_and_splits(
         Li = stack.layers[i]
         ni = n_of(Li.n, wl)
         cosi = cos_theta_in_layer(ni, n_in, theta_inc)
-        M_half = _M_layer(ni, Li.d * 0.5, wl, cosi, pol)
+        M_half = make_M(ni, Li.d * 0.5, wl, cosi, pol)
         left_split.append(left_iface[i] @ M_half)
         right_split.append(M_half @ right_iface[i + 1])
 
@@ -239,6 +239,8 @@ def needle_cycle(
     wavelengths: np.ndarray,
     targets: dict,
     n_candidates: List[float],
+    q_in: complex,
+    q_sub: complex,
     pol: str = "s",
     theta_inc: float = 0.0,
     d_init: float = 2e-9,
@@ -253,7 +255,6 @@ def needle_cycle(
     max_layers: int = 200,
     max_tot_nmopt: float = 1e9,
     wl_ref_for_tot: float = 550e-9,
-    pmap: PMapKind = "analytic",  # "analytic" | "discrete"
     verbose: bool = False,
     log_timing: bool = False,
 ) -> Tuple[Stack, Dict[str, Any]]:
@@ -268,39 +269,33 @@ def needle_cycle(
 
     # основной цикл по шагам
     for step in range(max_steps):
-        mf_before = rms_merit(current, wavelengths, targets, pol=pol, theta_inc=theta_inc)
-
+        mf_before = rms_merit(current, q_in, q_sub, wavelengths, targets, pol=pol, theta_inc=theta_inc)
+        print("mf_before")
+        print(mf_before)
         # ======================
         # 1. построение P-карты
         # ======================
-        if pmap == "discrete":
-            positions, n_best, dmf_best = discrete_excitation_map(
-                current, wavelengths, targets, n_candidates,
-                pol=pol, theta_inc=theta_inc, d_eps=d_eps, d_min=d_min,
-            )
-        else:
-            # кешируем базовые матрицы для всех λ
-            base_cache: Dict[Tuple[str, int], Dict[str, Any]] = {}
-            pols = ["s", "p"] if pol == "u" else [pol]
-            for p in pols:
-                for il, wl in enumerate(wavelengths):
-                    wl = float(wl)
-                    M_full, q_in, q_sub = _M_stack(current, wl, theta_inc, p)
-                    r0, t0_amp = rt_amplitudes(current, wl, theta_inc, p)
-                    left_iface, right_iface, left_split, right_split = _prefix_suffix_mats_for_interfaces_and_splits(
-                        current, wl, p, theta_inc
-                    )
-                    base_cache[(p, il)] = dict(
-                        wl=wl, M_full=M_full, q_in=q_in, q_sub=q_sub,
-                        r0=r0, t0=t0_amp,
-                        left_iface=left_iface, right_iface=right_iface,
-                        left_split=left_split, right_split=right_split,
-                    )
+        pols = ["s", "p"] if pol == "u" else [pol]
+        for p in pols:
+            for il, wl in enumerate(wavelengths):
+                wl = float(wl)
+                M_full, q_in, q_sub = _M_stack(current, wl, theta_inc, p)
+                r0, t0_amp = rt_amplitudes(current, wl, theta_inc, p)
+                left_iface, right_iface, left_split, right_split = _prefix_suffix_mats_for_interfaces_and_splits(
+                    current, wl, p, theta_inc
+                )
+                base_cache = []
+                base_cache[(p, il)] = dict(
+                    wl=wl, M_full=M_full, q_in=q_in, q_sub=q_sub,
+                    r0=r0, t0=t0_amp,
+                    left_iface=left_iface, right_iface=right_iface,
+                    left_split=left_split, right_split=right_split,
+                )
 
-            positions, n_best, dmf_best = analytic_excitation_map(
-                current, wavelengths, targets, n_candidates,
-                pol=pol, theta_inc=theta_inc, d_min=d_min,
-            )
+        positions, n_best, dmf_best = analytic_excitation_map(
+            current, wavelengths, targets, n_candidates,
+            pol=pol, theta_inc=theta_inc, d_min=d_min,
+        )
 
         # выбор лучшей позиции
         idx_best = int(np.argmin(dmf_best))

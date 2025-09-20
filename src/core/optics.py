@@ -12,21 +12,22 @@ class Layer:
     litera: Literal["H", "L"]   # тип материала (H или L)
     n: NType                # число или функция n(λ)->complex
     d: float                # физ. толщина (м)
-    cos_theta: complex      # косинус угла преломления
-    phi: complex            # фазовый набег
-    sphi: complex           # синус фи
-    cphi: complex           # косинус фи
-    q: complex
-    M: np.ndarray               # матрица слоя
+    cos_theta: np.ndarray   # косинус угла преломления (массив для разных длин волн)
+    phi: np.ndarray         # фазовый набег (массив)
+    sphi: np.ndarray        # синус фи (массив)
+    cphi: np.ndarray        # косинус фи (массив)
+    q: np.ndarray           # q-параметр (массив)
+    M: np.ndarray           # матрица слоя (3D массив: [2, 2, n_wavelengths])
 
 @dataclass
 class Stack:
     layers: np.ndarray
-    n_inc: NType      # n внешней среды (число/функция)
-    n_sub: NType      # n подложки (число/функция)
-    prefix: np.ndarray     # префиксное произведение
-    suffix: np.ndarray     # суффиксное произведение
-    M: np.ndarray     # M всего стэка
+    n_inc: NType      # n внешней среды
+    n_sub: NType      # n подложки
+    prefix: np.ndarray     # префиксное произведение (3D массив)
+    suffix: np.ndarray     # суффиксное произведение (3D массив)
+    M: np.ndarray     # M всего стэка (3D массив)
+    wavelengths: np.ndarray  # массив длин волн
 
 def n_of(nspec: NType, wl: float) -> complex:
     """
@@ -44,76 +45,41 @@ def cos_theta_in_layer(n_layer: complex, n_incident: complex, theta_incident: fl
     sin_tj = (n_incident * sin_ti) / n_layer
     return np.sqrt(1.0 - sin_tj**2)
 
-def q_parameter(n: complex, cos_theta: complex, pol: Literal["s","p"]) -> complex:
-    """
-    Функция расчета q-параметра
-    """
+# В optics.py добавьте векторные версии функций
+def phi_parameter(n: np.ndarray, d: float, cos_theta: np.ndarray, wavelengths: np.ndarray) -> np.ndarray:
+    """Векторная версия phi_parameter"""
+    return 2.0 * np.pi * n * d * cos_theta / wavelengths
+
+def q_parameter(n: np.ndarray, cos_theta: np.ndarray, pol: Literal["s","p"]) -> np.ndarray:
+    """Векторная версия q_parameter"""
     return n * cos_theta if pol == "s" else (cos_theta / n)
 
-def phi_parameter(n: complex, d: float, cos_theta: complex, wl: float) -> complex:
-    """
-    Функция расчета phi
-    """
-    return 2.0 * np.pi * n * d * cos_theta / wl
+def make_M(sphi: np.ndarray, cphi: np.ndarray, q: np.ndarray, n: int) -> np.ndarray:
+    """Векторная версия make_M"""
+    M = np.empty((2, 2, n), dtype=complex)
+    M[0, 0] = cphi
+    M[0, 1] = 1j * sphi / q
+    M[1, 0] = 1j * q * sphi
+    M[1, 1] = cphi
+    return M
 
-def _M_layer(nj: complex, dj: float, wl: float, cosj: complex, pol: Literal["s","p"]) -> np.ndarray:
-    """
-    Функция расчета матрицы одного слоя
-    """
-    phi = 2.0 * np.pi * nj * dj * cosj / wl
-    c, s = np.cos(phi), np.sin(phi)
-    q = q_parameter(nj, cosj, pol)
-    return np.array([[c, 1j * s / q],
-                     [1j * q * s, c]], dtype=complex)
-
-def make_M(sphi: float, cphi: float, q: complex) -> np.ndarray:
-    return np.array([[cphi, 1j * sphi / q],
-                     [1j * q * sphi, cphi]], dtype=complex)
-
-def _M_stack(stack: Stack, wl: float, theta_inc: float, pol: Literal["s","p"]) -> Tuple[np.ndarray, complex, complex]:
-    """
-    Функция расчета суммарной матрицы всех слоев
-    """
-    n_in  = n_of(stack.n_inc, wl)
-    n_sub = n_of(stack.n_sub, wl)
-    cos_in  = np.cos(theta_inc)
-    cos_sub = cos_theta_in_layer(n_sub, n_in,  theta_inc)
-    M = np.eye(2, dtype=complex)
-    for L in stack.layers:
-        nj = n_of(L.n, wl)
-        cosj = cos_theta_in_layer(nj, n_in, theta_inc)
-        M = M @ _M_layer(nj, L.d, wl, cosj, pol)
-    q_in  = q_parameter(n_in,  cos_in,  pol)
-    q_sub = q_parameter(n_sub, cos_sub, pol)
-    return M, q_in, q_sub
-
-def rt_amplitudes(stack: Stack, wl: float, theta_inc: float = 0.0, pol: Literal["s","p"] = "s") -> Tuple[complex, complex]:
-    M, q_in, q_sub = _M_stack(stack, wl, theta_inc, pol)
+def rt_amplitudes(stack: Stack, q_in, q_sub, wl: float, theta_inc: float, pol: Literal["s","p"]) -> Tuple[complex, complex]:
+    M = stack.M
     m11, m12, m21, m22 = M[0,0], M[0,1], M[1,0], M[1,1]
     denom = (m11 + m12 * q_sub) * q_in + (m21 + m22 * q_sub)
     r = ((m11 + m12 * q_sub) * q_in - (m21 + m22 * q_sub)) / denom
     t =  2.0 * q_in / denom
     return r, t
 
-def RT_single(stack: Stack, wl: float, theta_inc: float = 0.0, pol: Pol = "s") -> Tuple[float, float]:
-    if pol == "u":
-        # усреднение s/p
-        r_s, t_s = rt_amplitudes(stack, wl, theta_inc, "s")
-        r_p, t_p = rt_amplitudes(stack, wl, theta_inc, "p")
-        _, q_in_s,  q_sub_s = _M_stack(stack, wl, theta_inc, "s")
-        _, q_in_p,  q_sub_p = _M_stack(stack, wl, theta_inc, "p")
-        R = 0.5 * (np.abs(r_s)**2 + np.abs(r_p)**2)
-        T = 0.5 * (np.real(q_sub_s/q_in_s)*np.abs(t_s)**2 + np.real(q_sub_p/q_in_p)*np.abs(t_p)**2)
-        return float(R), float(T)
-    r, t = rt_amplitudes(stack, wl, theta_inc, pol)
-    _, q_in,  q_sub = _M_stack(stack, wl, theta_inc, pol)
+def RT_single(stack: Stack, q_in, q_sub, wl: float, theta_inc: float, pol: Literal["s","p"]) -> Tuple[float, float]:
+    r, t = rt_amplitudes(stack, q_in, q_sub, wl, theta_inc, pol)
     R = np.abs(r)**2
     T = np.real(q_sub/q_in) * np.abs(t)**2
     return float(R), float(T)
 
-def RT(stack: Stack, wavelengths: np.ndarray, theta_inc: float = 0.0, pol: Pol = "s") -> Tuple[np.ndarray, np.ndarray]:
+def RT(stack: Stack, q_in, q_sub, wavelengths: np.ndarray, theta_inc: float, pol: Literal["s","p"]) -> Tuple[np.ndarray, np.ndarray]:
     R = np.empty_like(wavelengths, dtype=float)
     T = np.empty_like(wavelengths, dtype=float)
     for i, wl in enumerate(wavelengths):
-        R[i], T[i] = RT_single(stack, float(wl), theta_inc, pol)
+        R[i], T[i] = RT_single(stack, q_in, q_sub, float(wl), theta_inc, pol)
     return R, T

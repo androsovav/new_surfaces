@@ -11,6 +11,7 @@ def _phase(z: np.ndarray | complex) -> np.ndarray:
 
 def rms_merit(
     stack: Stack,
+    q_in, q_sub,
     wavelengths: np.ndarray,
     targets: dict[str, dict[str, np.ndarray]],
     pol: Literal["s","p","u"] = "s",
@@ -22,7 +23,7 @@ def rms_merit(
     errs = []
 
     if "R" in targets or "T" in targets:
-        R, T = RT(stack, wavelengths, theta_inc=theta_inc, pol=pol)
+        R, T = RT(stack, q_in, q_sub, wavelengths, theta_inc=theta_inc, pol=pol)
         if "R" in targets:
             resid = (R - targets["R"]["target"]) / targets["R"]["sigma"]
             errs.append(resid**2)
