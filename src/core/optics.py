@@ -5,35 +5,35 @@ from typing import Callable, List, Tuple, Literal, Union
 import numpy as np
 
 Pol = Literal["s", "p", "u"]  # поляризация. u - неполяризованный свет.
-NType = Union[float, complex, Callable[[float], complex]]   # показатель преломления среды. Может быть действительным (float), комплексным (complex), и задаваться функцией длины волны
+NType = Union[float, complex, Callable[[float, float], complex]]   # показатель преломления среды. Может быть действительным (float), комплексным (complex), и задаваться функцией длины волны
 
 @dataclass
 class Layer:
     litera: Literal["H", "L"]   # тип материала (H или L)
-    n: NType                # число или функция n(λ)->complex
     d: float                # физ. толщина (м)
-    cos_theta: np.ndarray   # косинус угла преломления (массив для разных длин волн)
     phi: np.ndarray         # фазовый набег (массив)
     sphi: np.ndarray        # синус фи (массив)
     cphi: np.ndarray        # косинус фи (массив)
-    q: np.ndarray           # q-параметр (массив)
     M: np.ndarray           # матрица слоя (3D массив: [2, 2, n_wavelengths])
 
 @dataclass
 class Stack:
     layers: np.ndarray
-    n_inc: NType      # n внешней среды
-    n_sub: NType      # n подложки
     prefix: np.ndarray     # префиксное произведение (3D массив)
     suffix: np.ndarray     # суффиксное произведение (3D массив)
     M: np.ndarray     # M всего стэка (3D массив)
-    wavelengths: np.ndarray  # массив длин волн
 
-def n_of(nspec: NType, wl: float) -> complex:
+def n_of(nspec: NType, A: float, wl: float) -> complex:
     """
     Функция, которая принимает на вход NType и возвращает одно комплексное значение показателя преломления среды
     """
-    return complex(nspec(wl)) if callable(nspec) else complex(nspec)
+    return complex(nspec(A, wl)) if callable(nspec) else complex(nspec)
+
+def n_cauchy(A:float, wl: float) -> complex:
+    # wl в метрах → переведём в мкм для удобства
+    wl_um = wl * 1e6
+    B, C = 0.004, 0.0001  # коэффициенты
+    return A + B / wl_um**2 + C / wl_um**4
 
 def cos_theta_in_layer(n_layer: complex, n_incident: complex, theta_incident: float) -> complex:
     """

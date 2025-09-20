@@ -5,49 +5,40 @@ import numpy as np
 from ..core.optics import NType, n_of, Layer, Stack, cos_theta_in_layer, q_parameter, phi_parameter, make_M
 
 def make_stack(start_flag: Literal["H", "L"], thickness: np.ndarray, 
-               n_inc: NType, n_sub: NType, nH: NType, nL: NType, 
-               theta_inc: float, wavelengths: np.ndarray, pol: Literal["s","p"]) -> Stack:
+               n_inc_values: np.ndarray, n_sub_values: np.ndarray, nH_values: np.ndarray, nL_values: np.ndarray, 
+               cos_theta_in_H_layers: np.ndarray, cos_theta_in_L_layers: np.ndarray, qH: complex,
+                qL: complex, wavelengths: np.ndarray, n_wavelengths: int, pol: Literal["s","p"]) -> Stack:
     
     num_of_layers = len(thickness)
-    n_wavelengths = len(wavelengths)
     
     # Инициализация массивов для всех длин волн
     layers = np.empty(num_of_layers, dtype=object)
     Hlayer = start_flag == "H"
-    
+
     for i in range(num_of_layers):
         if Hlayer:
             Hlayer = False
             litera = "H"
-            n_func = nH
+            # Вычисляем phi, sphi, cphi для всех длин волн
+            phi = phi_parameter(nH_values, thickness[i], cos_theta_in_H_layers, wavelengths)
+            sphi = np.sin(phi)
+            cphi = np.cos(phi)
+            # Вычисляем матрицы M для всех длин волн
+            M = make_M(sphi, cphi, qH, n_wavelengths)
+            
+            layers[i] = Layer(litera=litera, d=thickness[i], phi=phi, sphi=sphi, cphi=cphi, M=M)
         else:
             Hlayer = True
             litera = "L"
-            n_func = nL
-        
-        # Вычисляем n для всех длин волн
-        n_values = np.array([n_of(n_func, wl) for wl in wavelengths])
-        
-        # Вычисляем cos_theta для всех длин волн
-        n_inc_values = np.array([n_of(n_inc, wl) for wl in wavelengths])
-        cos_theta = np.array([cos_theta_in_layer(n_val, n_inc_val, theta_inc) 
-                             for n_val, n_inc_val in zip(n_values, n_inc_values)])
-        
-        # Вычисляем phi, sphi, cphi для всех длин волн
-        phi = phi_parameter(n_values, thickness[i], cos_theta, wavelengths)
-        sphi = np.sin(phi)
-        cphi = np.cos(phi)
-        
-        # Вычисляем q для всех длин волн
-        q = q_parameter(n_values, cos_theta, pol)
-        
-        # Вычисляем матрицы M для всех длин волн
-        M = make_M(sphi, cphi, q, n_wavelengths)
-        
-        layers[i] = Layer(litera=litera, n=n_func, d=thickness[i],
-                         cos_theta=cos_theta, phi=phi, sphi=sphi, cphi=cphi,
-                         q=q, M=M)
-    
+            # Вычисляем phi, sphi, cphi для всех длин волн
+            phi = phi_parameter(nL_values, thickness[i], cos_theta_in_L_layers, wavelengths)
+            sphi = np.sin(phi)
+            cphi = np.cos(phi)
+            # Вычисляем матрицы M для всех длин волн
+            M = make_M(sphi, cphi, qL, n_wavelengths)
+            
+            layers[i] = Layer(litera=litera, d=thickness[i], phi=phi, sphi=sphi, cphi=cphi, M=M)
+            
     # Инициализация префиксных и суффиксных произведений
     prefix = np.empty((num_of_layers, 2, 2, n_wavelengths), dtype=complex)
     suffix = np.empty((num_of_layers, 2, 2, n_wavelengths), dtype=complex)
@@ -61,13 +52,19 @@ def make_stack(start_flag: Literal["H", "L"], thickness: np.ndarray,
         half_d = 0.5 * layer.d
         
         # Пересчитываем параметры для половины толщины
-        phi_half = phi_parameter(layer.n, half_d, layer.cos_theta, wavelengths)
-        sphi_half = np.sin(phi_half)
-        cphi_half = np.cos(phi_half)
-        q_half = layer.q  # q не зависит от толщины
-        
-        # Создаем матрицу для половины слоя
-        M_half = make_M(sphi_half, cphi_half, q_half, n_wavelengths)
+        if layer.litera == "H":
+            phi_half = phi_parameter(nH_values, half_d, cos_theta_in_H_layers, wavelengths)
+            sphi_half = np.sin(phi_half)
+            cphi_half = np.cos(phi_half)
+            # Создаем матрицу для половины слоя
+            M_half = make_M(sphi_half, cphi_half, qH, n_wavelengths)
+        else:
+            phi_half = phi_parameter(nL_values, half_d, cos_theta_in_L_layers, wavelengths)
+            sphi_half = np.sin(phi_half)
+            cphi_half = np.cos(phi_half)            
+            # Создаем матрицу для половины слоя
+            M_half = make_M(sphi_half, cphi_half, qL, n_wavelengths)        
+
         
         # Обновляем префикс и left
         prefix[i] = np.einsum('ijk,jlk->ilk', left, M_half)
@@ -77,19 +74,21 @@ def make_stack(start_flag: Literal["H", "L"], thickness: np.ndarray,
         layer_rev = layers[-(i+1)]
         half_d_rev = 0.5 * layer_rev.d
         
-        phi_half_rev = phi_parameter(layer_rev.n, half_d_rev, layer_rev.cos_theta, wavelengths)
-        sphi_half_rev = np.sin(phi_half_rev)
-        cphi_half_rev = np.cos(phi_half_rev)
-        q_half_rev = layer_rev.q
-        
-        M_half_rev = make_M(sphi_half_rev, cphi_half_rev, q_half_rev, n_wavelengths)
+        if layer.litera == "H":
+            phi_half_rev = phi_parameter(nH_values, half_d_rev, cos_theta_in_H_layers, wavelengths)
+            sphi_half_rev = np.sin(phi_half_rev)
+            cphi_half_rev = np.cos(phi_half_rev)     
+            M_half_rev = make_M(sphi_half_rev, cphi_half_rev, qH, n_wavelengths)
+        else:
+            phi_half_rev = phi_parameter(nL_values, half_d_rev, cos_theta_in_L_layers, wavelengths)
+            sphi_half_rev = np.sin(phi_half_rev)
+            cphi_half_rev = np.cos(phi_half_rev)     
+            M_half_rev = make_M(sphi_half_rev, cphi_half_rev, qL, n_wavelengths)
         
         suffix[i] = np.einsum('ijk,jlk->ilk', M_half_rev, right)
         right = np.einsum('ijk,jlk->ilk', layer_rev.M, right)
     
-    return Stack(layers=layers, n_inc=n_inc, n_sub=n_sub, 
-                prefix=prefix, suffix=suffix, M=left,
-                wavelengths=wavelengths)
+    return Stack(layers=layers, prefix=prefix, suffix=suffix, M=left)
 
 def with_dispersion(n_func_H: Callable[[float], complex], n_func_L: Callable[[float], complex],
                     dH: float, dL: float, periods: int, n_inc: float, n_sub: float) -> Stack:
