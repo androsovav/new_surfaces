@@ -2,44 +2,95 @@
 from __future__ import annotations
 from typing import List, Callable, Literal
 import numpy as np
-from ..core.optics import NType, n_of, Layer, Stack, cos_theta_in_layer, q_parameter, make_M
+from ..core.optics import NType, n_of, Layer, Stack, cos_theta_in_layer, q_parameter, phi_parameter, make_M
 
-def make_stack(n_inc: NType, n_sub: NType, nH: NType, nL: NType, theta_inc: float, wl: float, pol: Literal["s","p"], periods: int, quarter_at: float) -> Stack:
-    dH = (quarter_at / (4.0 * nH))
-    dL = (quarter_at / (4.0 * nL))
-    layers: List[Layer] = []
-    for _ in range(periods):
-        n = n_of(nspec=nH, wl=wl)
-        cos_theta=np.cos(cos_theta_in_layer(n_layer=nH, n_incident=n_inc, theta_incident=theta_inc))
-        phi=2.0 * np.pi * n * dH * cos_theta / wl
+def make_stack(start_flag: Literal["H", "L"], thickness: np.ndarray, n_inc: NType, n_sub: NType, nH: NType, nL: NType, theta_inc: float, wl: float, pol: Literal["s","p"]) -> Stack:
+    newwl = 550e-9 # заглушка
+    num_of_layers = len(thickness)
+    layers = np.ndarray(shape=(num_of_layers), dtype=Layer)
+    Hlayer = start_flag == "H"
+    for i in range(num_of_layers):
+        if Hlayer:
+            Hlayer = False
+            litera = "H"
+            n = n_of(nspec=nH, wl=newwl)
+        else:
+            Hlayer = True
+            litera = "L"
+            n = n_of(nspec=nL, wl=newwl)
+        cos_theta=cos_theta_in_layer(n, n_inc, theta_inc)
+        phi = phi_parameter(n, thickness[i], cos_theta, newwl)
         sphi = np.sin(phi)
         cphi = np.cos(phi)
-        q = q_parameter(n=n, cos_theta=cos_theta, pol=pol)
-        layers.append(Layer(n=n, 
-                            d=dH,
+        q = q_parameter(n, cos_theta, pol)
+        layers[i] = Layer(litera=litera,
+                            n=n, 
+                            d=thickness[i],
                             cos_theta=cos_theta,
                             phi=phi,
                             sphi=sphi,
                             cphi=cphi,
                             q=q,
-                            M=make_M(sphi=sphi, cphi=cphi, q=q)))
-        n = n_of(nspec=nL, wl=wl)
-        cos_theta=np.cos(cos_theta_in_layer(n_layer=nL, n_incident=n_inc, theta_incident=theta_inc))
-        phi=2.0 * np.pi * n * dL * cos_theta / wl
-        sphi = np.sin(phi)
-        cphi = np.cos(phi)
-        q = q_parameter(n=n, cos_theta=cos_theta, pol=pol)
-        layers.append(Layer(n=n, 
-                            d=dL,
-                            cos_theta=cos_theta,
-                            phi=phi,
-                            sphi=sphi,
-                            cphi=cphi,
-                            q=q,
-                            M=make_M(sphi=sphi, cphi=cphi, q=q)))
-    prefix = np.array()
-    suffix = np.array()
-    return Stack(layers=layers, n_inc=n_inc, n_sub=n_sub)
+                            M=make_M(sphi=sphi, cphi=cphi, q=q))
+    prefix = np.ndarray(shape= (num_of_layers), dtype=np.ndarray)
+    suffix = np.ndarray(shape= (num_of_layers), dtype=np.ndarray)
+    left = np.eye(2, dtype=complex)
+    right = np.eye(2, dtype=complex)
+    for i in range(num_of_layers):
+        # считаем матрицу половины слоя
+        layer = layers[i]
+        layer.d = 0.5*layer.d
+        layer.phi = phi_parameter(layer.n, layer.d, layer.cos_theta, newwl)
+        layer.sphi = np.sin(layer.phi)
+        layer.cphi = np.cos(layer.phi)
+        # домножаем произведение М всех слоев слева на М половины слоя
+        prefix[i] = left @ make_M(layer.sphi, layer.cphi, layer.q)
+        # добавляем к произведению новый слой
+        left = left @ layers[i].M
+        # считаем матрицу половины слоя
+        layer = layers[-(i+1)]
+        layer.d = 0.5*layer.d
+        layer.phi = phi_parameter(layer.n, layer.d, layer.cos_theta, newwl)
+        layer.sphi = np.sin(layer.phi)
+        layer.cphi = np.cos(layer.phi)
+        # домножаем произведение М всех слоев слева на М половины слоя
+        suffix[i] = make_M(layer.sphi, layer.cphi, layer.q) @ right
+        # добавляем к произведению новый слой
+        right = layers[-(i+1)].M @ right
+        # считаем матрицу половины слоя
+        layer = layers[i]
+        layer.d = 0.5*layer.d
+        layer.phi = phi_parameter(layer.n, layer.d, layer.cos_theta, newwl)
+        layer.sphi = np.sin(layer.phi)
+        layer.cphi = np.cos(layer.phi)
+        # домножаем произведение М всех слоев слева на М половины слоя
+        prefix[i] = left @ make_M(layer.sphi, layer.cphi, layer.q)
+        # добавляем к произведению новый слой
+        left = left @ layers[i].M
+        # считаем матрицу половины слоя
+        layer = layers[-(i+1)]
+        layer.d = 0.5*layer.d
+        layer.phi = phi_parameter(layer.n, layer.d, layer.cos_theta, newwl)
+        layer.sphi = np.sin(layer.phi)
+        layer.cphi = np.cos(layer.phi)
+        # домножаем M половины слоя на произведение M всех слоев справа
+        suffix[i] = make_M(layer.sphi, layer.cphi, layer.q) @ right
+        # добавляем к произведению новый слой
+        right = layers[-(i+1)].M @ right
+    m = left
+    print(layers)
+    print("layers")
+    print(n_inc)
+    print("n_inc")
+    print(n_sub)
+    print("n_sub")
+    print(prefix)
+    print("prefix")
+    print(suffix)
+    print("suffix")
+    print(m)
+    print("M")
+    return Stack(layers=layers, n_inc=n_inc, n_sub=n_sub, prefix=prefix, suffix=suffix, M=m)
 
 def with_dispersion(n_func_H: Callable[[float], complex], n_func_L: Callable[[float], complex],
                     dH: float, dL: float, periods: int, n_inc: float, n_sub: float) -> Stack:

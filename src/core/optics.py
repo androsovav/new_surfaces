@@ -9,6 +9,7 @@ NType = Union[float, complex, Callable[[float], complex]]   # показател
 
 @dataclass
 class Layer:
+    litera: Literal["H", "L"]   # тип материала (H или L)
     n: NType                # число или функция n(λ)->complex
     d: float                # физ. толщина (м)
     cos_theta: complex      # косинус угла преломления
@@ -20,11 +21,12 @@ class Layer:
 
 @dataclass
 class Stack:
-    layers: List[Layer]
+    layers: np.ndarray
     n_inc: NType      # n внешней среды (число/функция)
     n_sub: NType      # n подложки (число/функция)
     prefix: np.ndarray     # префиксное произведение
     suffix: np.ndarray     # суффиксное произведение
+    M: np.ndarray     # M всего стэка
 
 def n_of(nspec: NType, wl: float) -> complex:
     """
@@ -47,6 +49,12 @@ def q_parameter(n: complex, cos_theta: complex, pol: Literal["s","p"]) -> comple
     Функция расчета q-параметра
     """
     return n * cos_theta if pol == "s" else (cos_theta / n)
+
+def phi_parameter(n: complex, d: float, cos_theta: complex, wl: float) -> complex:
+    """
+    Функция расчета phi
+    """
+    return 2.0 * np.pi * n * d * cos_theta / wl
 
 def _M_layer(nj: complex, dj: float, wl: float, cosj: complex, pol: Literal["s","p"]) -> np.ndarray:
     """

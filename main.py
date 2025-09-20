@@ -1,6 +1,7 @@
 # main.py
 import numpy as np
 import time
+from src.core.optics import n_of
 from src.design.design import make_stack
 from src.design.targets import target_AR, combine_targets
 from src.algorithms.needle import needle_cycle
@@ -11,21 +12,22 @@ from src.engine.report import print_report
 def run_needle_cycle():
     print("=== ANALYTIC P-map (single run) ===")
     wl = np.linspace(500e-9, 600e-9, 101)
-    n_air = 1.0
-    n_sub = 1.52
-    nH, nL = 2.35, 1.45
-    theta_inc=0.0
-    pol="s"
-
-    stack0 = make_stack(n_inc=n_air, 
-                        n_sub=n_sub, 
-                        nH=nH,
-                        nL=nL,
-                        theta_inc=theta_inc,
-                        wl=wl,
-                        pol=pol,
-                        periods=1, 
-                        quarter_at=550e-9)
+    quarter_at = 550e-9
+    nH = 2.35
+    nL = 1.45
+    dH = (quarter_at / (4.0 * n_of(nspec=nH, wl=550e-9)))
+    dL = (quarter_at / (4.0 * n_of(nspec=nL, wl=550e-9)))
+    pol = "s"
+    theta_inc=0.5
+    stack0 = make_stack(start_flag="H",
+                    thickness = np.array([dH, dL]),
+                    n_inc=1.0, 
+                    n_sub=1.52, 
+                    nH=2.35,
+                    nL=1.45,
+                    theta_inc=theta_inc,
+                    wl=np.linspace(500e-9, 600e-9, 101),
+                    pol=pol)
     targets = combine_targets(target_AR(wl, R_target=0.0, sigma=0.03))
     n_cands = [nH, nL]
 
@@ -87,4 +89,3 @@ def run_random_search():
 
 if __name__ == "__main__":
     run_needle_cycle()
-    run_random_search()
