@@ -1,13 +1,14 @@
 # src/algorithms/needle.py
 from __future__ import annotations
 import numpy as np
+import time
 from typing import List, Tuple, Literal, Dict, Any
 
 from ..core.optics import (
     Stack, make_M, cos_theta_in_layer, q_parameter, n_of,
     rt_amplitudes, RT_coeffs
 )
-from ..design.design import insert_layer, insert_with_split
+from ..design.design import insert_layer, insert_with_split, make_stack
 from ..core.merit import rms_merit
 from .optimizers import coordinate_descent_thicknesses
 from ..core.metrics import layer_count, total_optical_thickness
@@ -78,7 +79,7 @@ def analytic_excitation_map(
     Для H вставляем L, для L вставляем H.
     """
 
-    base_MF = rms_merit(stack, q_in, q_sub, wavelengths, targets, pol, theta_inc)
+    base_MF = rms_merit(q_in, q_sub, wavelengths, targets, pol, theta_inc, stack.r, stack.t, stack.R, stack.T)
     if base_MF < 1e-18:
         return np.arange(-1, len(stack.layers)+1), np.full(len(stack.layers)+2, np.nan), np.zeros(len(stack.layers)+2)
 
@@ -126,9 +127,7 @@ def analytic_excitation_map(
         r, t = rt_amplitudes(M_tot, q_in, q_sub)
         R, T = RT_coeffs(r, t, q_in, q_sub)
 
-        tmp_stack = Stack(layers=stack.layers, prefix=stack.prefix, suffix=stack.suffix,
-                          M=M_tot, r=r, t=t, R=R, T=T)
-        mf_new = rms_merit(tmp_stack, q_in, q_sub, wavelengths, targets, pol, theta_inc)
+        mf_new = rms_merit(q_in, q_sub, wavelengths, targets, pol, theta_inc, r, t, R, T)
 
         dmf_best[k] = base_MF - mf_new
         n_best[k] = ins_litera
@@ -150,12 +149,16 @@ def needle_cycle(
     targets: dict,
     nH_values: np.ndarray,
     nL_values: np.ndarray,
+    n_inc_values: np.ndarray,
+    n_sub_values: np.ndarray,
     q_in: np.ndarray,
     q_sub: np.ndarray,
     qH: np.ndarray,
     qL: np.ndarray,
     pol: str,
     theta_inc: np.ndarray,
+    cos_theta_in_H_layers: np.ndarray,
+    cos_theta_in_L_layers: np.ndarray,
     d_init: float = 2e-9,
     d_eps: float = 5e-10,
     coord_step_rel: float = 0.25,
@@ -182,17 +185,21 @@ def needle_cycle(
 
     # основной цикл по шагам
     for step in range(max_steps):
-        mf_before = rms_merit(current, q_in, q_sub, wavelengths, targets, pol=pol, theta_inc=theta_inc)
+        mf_before = rms_merit(q_in, q_sub, wavelengths, targets, pol, theta_inc, current.r, current.t, current.R, current.T)
         print("mf_before")
         print(mf_before)
         # ======================
         # 1. построение P-карты
         # ======================
+        t0 = time.perf_counter()
         positions, n_best, dmf_best = analytic_excitation_map(
             current, q_in, q_sub, qH, qL, nH_values, nL_values,
             wavelengths, targets,
             pol, theta_inc, d_min
         )
+        t1 = time.perf_counter()
+        print("after pmap")
+        print("time pmap = "+str(t1-t0))
         print(positions)
         print(n_best)
         print(dmf_best)
@@ -209,7 +216,20 @@ def needle_cycle(
         # ============================
         # 2. вставка нового слоя
         # ============================
-        current = _test_insert(current, pos_best, n_new=n_new, d_new=d_init)
+        thickness = np.empty(len(current.layers), dtype=float)
+        for i in range(len(current.layers)):
+            thickness[i] = current.layers[i].d
+        if pos_best == -1:
+            thickness = np.insert(thickness, 0, d_init)
+            start_flag = n_new
+            current = make_stack(start_flag, thickness, 
+               n_inc_values, n_sub_values, nH_values, nL_values, 
+               cos_theta_in_H_layers, cos_theta_in_L_layers,
+                q_in, q_sub, qH,
+                qL, wavelengths, n_wavelengths=len(wavelengths), pol=pol)
+        print(current)
+        print(mf_before)
+        print(rms_merit(q_in, q_sub, wavelengths, targets, pol, theta_inc, current.r, current.t, current.R, current.T))
 
         # ============================
         # 3. локальная оптимизация

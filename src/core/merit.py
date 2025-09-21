@@ -10,12 +10,15 @@ def _phase(z: np.ndarray | complex) -> np.ndarray:
     return np.angle(z)
 
 def rms_merit(
-    stack: Stack,
     q_in: np.ndarray, q_sub,
     wavelengths: np.ndarray,
     targets: dict[str, dict[str, np.ndarray]],
     pol: Literal["s","p"],
-    theta_inc: np.ndarray
+    theta_inc: np.ndarray,
+    r: np.ndarray = np.array([]),
+    t: np.ndarray = np.array([]),
+    R: np.ndarray = np.array([]),
+    T: np.ndarray = np.array([])
 ) -> float:
     """
     Универсальная RMS-мерит функция для многокритериальных целей.
@@ -23,18 +26,15 @@ def rms_merit(
     errs = []
 
     if "R" in targets:
-        R = stack.R
         resid = (R - targets["R"]["target"]) / targets["R"]["sigma"]
         errs.append(resid**2)
     if "T" in targets:
-        T = stack.T
         resid = (T - targets["T"]["target"]) / targets["T"]["sigma"]
         errs.append(resid**2)
 
     if "phase_t" in targets or "phase_r" in targets:
         if pol == "u":
             raise ValueError("Фазовые цели нельзя задавать при pol='u'; выберите 's' или 'p'.")
-        r, t = stack.r, stack.t
         if "phase_t" in targets:
             resid = (_phase(t) - targets["phase_t"]["target"]) / targets["phase_t"]["sigma"]
             errs.append(resid**2)

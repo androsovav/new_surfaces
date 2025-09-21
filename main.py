@@ -137,7 +137,7 @@ if __name__ == "__main__":
                     pol=pol)
     targets = combine_targets(target_AR(wavelengths, R_target=0.0, sigma=0.03))
     t0 = time.perf_counter()
-    merit = rms_merit(stack0, q_in, q_sub, wavelengths, targets, pol, theta_inc)
+    merit = rms_merit(q_in, q_sub, wavelengths, targets, pol, theta_inc, stack0.r, stack0.t, stack0.R, stack0.T)
     t1 = time.perf_counter()
     print("time")
     print(t1-t0)
@@ -148,8 +148,12 @@ if __name__ == "__main__":
         targets=targets,
         nH_values=nH_values,
         nL_values=nL_values,
+        n_inc_values=n_inc_values,
+        n_sub_values=n_sub_values,
         pol=pol,
-        theta_inc = theta_inc,
+        theta_inc=theta_inc,
+        cos_theta_in_H_layers=cos_theta_in_H_layers,
+        cos_theta_in_L_layers=cos_theta_in_L_layers,
         q_in=q_in,
         q_sub=q_sub,
         qH=qH,
