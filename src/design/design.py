@@ -74,7 +74,7 @@ def make_stack(start_flag: Literal["H", "L"], thickness: np.ndarray,
         layer_rev = layers[-(i+1)]
         half_d_rev = 0.5 * layer_rev.d
         
-        if layer.litera == "H":
+        if layer_rev.litera == "H":
             phi_half_rev = phi_parameter(nH_values, half_d_rev, cos_theta_in_H_layers, wavelengths)
             sphi_half_rev = np.sin(phi_half_rev)
             cphi_half_rev = np.cos(phi_half_rev)     
@@ -85,7 +85,7 @@ def make_stack(start_flag: Literal["H", "L"], thickness: np.ndarray,
             cphi_half_rev = np.cos(phi_half_rev)     
             M_half_rev = make_M(sphi_half_rev, cphi_half_rev, qL, n_wavelengths)
         
-        suffix[i] = np.einsum('ijk,jlk->ilk', M_half_rev, right)
+        suffix[-(i+1)] = np.einsum('ijk,jlk->ilk', M_half_rev, right)
         right = np.einsum('ijk,jlk->ilk', layer_rev.M, right)
     
     return Stack(layers=layers, prefix=prefix, suffix=suffix, M=left)

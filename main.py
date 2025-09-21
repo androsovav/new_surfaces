@@ -96,7 +96,7 @@ def run_random_search():
 
 
 if __name__ == "__main__":
-    n_wavelengths = 2
+    n_wavelengths = 1001
     wavelengths = np.linspace(500e-9, 600e-9, n_wavelengths)
     quarter_at = 550e-9
     n_inc_values = np.array([n_of(n_cauchy, 1.0, wl) for wl in wavelengths])
@@ -114,7 +114,7 @@ if __name__ == "__main__":
 
     # неизменны для данной задачи
     q_in = q_parameter(n_inc_values, np.cos(theta_inc), pol)
-    q_sub = q_parameter(n_inc_values, cos_theta_in_layer(n_sub_values, n_inc_values, theta_inc), pol)
+    q_sub = q_parameter(n_sub_values, cos_theta_in_layer(n_sub_values, n_inc_values, theta_inc), pol)
     t0 = time.perf_counter()
     stack0 = make_stack(start_flag="H",
                     thickness = np.array([dH, dL]),
@@ -135,4 +135,7 @@ if __name__ == "__main__":
     print("stack0.M")
     print(stack0.M)
     print("prefix*suffix")
-    print(stack0.prefix[0]*stack0.suffix[0])
+    prod = np.einsum('ijk,jlk->ilk', stack0.prefix[0], stack0.suffix[0])
+    print(prod)
+    print(np.allclose(prod, stack0.M))
+    print(t1-t0)
