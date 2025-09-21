@@ -5,7 +5,7 @@ from typing import List, Tuple, Literal, Dict, Any
 
 from ..core.optics import (
     Stack, make_M, cos_theta_in_layer, q_parameter, n_of,
-    rt_amplitudes
+    rt_amplitudes, RT_coeffs
 )
 from ..design.design import insert_layer, insert_with_split
 from ..core.merit import rms_merit
@@ -33,44 +33,6 @@ def enumerate_positions(stack: Stack) -> List[Tuple[PositionKind, int]]:
     positions += [("split", i) for i in range(N)]
     return positions
 
-def _prefix_suffix_mats_for_interfaces_and_splits(
-    stack: Stack, wl: float, pol: str, theta_inc: float
-):
-    """
-    Возвращает:
-      left_iface[k], right_iface[k]  для k=0..N
-      left_split[i], right_split[i]  для i=0..N-1
-    """
-    n_in = n_of(stack.n_inc, wl)
-    N = len(stack.layers)
-
-    left_iface = [np.eye(2, dtype=complex)]
-    for j in range(N):
-        Lj = stack.layers[j]
-        nj = n_of(Lj.n, wl)
-        cosj = cos_theta_in_layer(nj, n_in, theta_inc)
-        left_iface.append(left_iface[-1] @ make_M(nj, Lj.d, wl, cosj, pol))
-
-    right_iface = [None] * (N + 1)
-    right_iface[N] = np.eye(2, dtype=complex)
-    for j in reversed(range(N)):
-        Lj = stack.layers[j]
-        nj = n_of(Lj.n, wl)
-        cosj = cos_theta_in_layer(nj, n_in, theta_inc)
-        right_iface[j] = make_M(nj, Lj.d, wl, cosj, pol) @ right_iface[j + 1]
-
-    left_split = []
-    right_split = []
-    for i in range(N):
-        Li = stack.layers[i]
-        ni = n_of(Li.n, wl)
-        cosi = cos_theta_in_layer(ni, n_in, theta_inc)
-        M_half = make_M(ni, Li.d * 0.5, wl, cosi, pol)
-        left_split.append(left_iface[i] @ M_half)
-        right_split.append(M_half @ right_iface[i + 1])
-
-    return left_iface, right_iface, left_split, right_split
-
 def _dM_layer_dd_at_zero(n_new: complex, n_in: complex, wl: float, pol: str, theta_inc: float) -> np.ndarray:
     cos_new = cos_theta_in_layer(n_new, n_in, theta_inc)
     q = q_parameter(n_new, cos_new, pol)
@@ -94,138 +56,86 @@ def _phase(z: np.ndarray | complex) -> np.ndarray:
     return np.angle(z)
 
 # ---------------------------
-# P-КАРТЫ (discrete и analytic)
+# P-КАРТА
 # ---------------------------
-
-def discrete_excitation_map(
-    stack: Stack,
-    wavelengths: np.ndarray,
-    targets: dict,
-    n_candidates: List[float],
-    pol: str = "s",
-    theta_inc: float = 0.0,
-    d_eps: float = 5e-10,
-    d_min: float | None = None,
-) -> Tuple[List[Tuple[PositionKind,int]], np.ndarray, np.ndarray]:
-    """
-    Дискретная P-карта: ΔMF при тестовой вставке сверхтонкого слоя.
-    """
-    base_mf = rms_merit(stack, wavelengths, targets, pol=pol, theta_inc=theta_inc)
-    positions = enumerate_positions(stack)
-    n_best = np.full(len(positions), np.nan, dtype=float)
-    dmf_best = np.full(len(positions), np.inf, dtype=float)
-
-    for i, pos in enumerate(positions):
-        for n_new in n_candidates:
-            if d_min is not None and d_eps < d_min:
-                continue
-            test = _test_insert(stack, pos, n_new=n_new, d_new=d_eps)
-            mf = rms_merit(test, wavelengths, targets, pol=pol, theta_inc=theta_inc)
-            dmf = mf - base_mf
-            if dmf < dmf_best[i]:
-                dmf_best[i] = dmf
-                n_best[i] = n_new
-    return positions, n_best, dmf_best
 
 def analytic_excitation_map(
     stack: Stack,
+    q_in: np.ndarray, q_sub: np.ndarray,
+    qH: np.ndarray, qL: np.ndarray,
+    nH_values: np.ndarray, nL_values: np.ndarray,
     wavelengths: np.ndarray,
     targets: dict,
-    n_candidates: List[float],
-    pol: str = "s",
-    theta_inc: float = 0.0,
-    d_min: float | None = None,
-    base_cache: Dict[Tuple[str,int], Dict[str,Any]] | None = None,  # <─ новое
-) -> Tuple[List[Tuple[PositionKind,int]], np.ndarray, np.ndarray]:
+    pol: Literal["s", "p"],
+    theta_inc: np.ndarray,
+    d_min: float
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Аналитическая P-карта: d(MF)/dd в точке d=0 для вставляемого слоя.
-    Поддержка целей: R, T, phase_t, phase_r.
+    Векторизованная аналитическая P-карта:
+    - середины слоёв
+    - перед первым слоем
+    - после последнего слоя
+    Для H вставляем L, для L вставляем H.
     """
-    if pol == "u" and (("phase_t" in targets) or ("phase_r" in targets)):
-        raise ValueError("Фазовые цели недоступны при pol='u'. Используйте 's' или 'p'.")
 
-    base_MF = rms_merit(stack, wavelengths, targets, pol=pol, theta_inc=theta_inc)
+    base_MF = rms_merit(stack, q_in, q_sub, wavelengths, targets, pol, theta_inc)
     if base_MF < 1e-18:
-        positions = enumerate_positions(stack)
-        return positions, np.full(len(positions), np.nan), np.zeros(len(positions))
+        return np.arange(-1, len(stack.layers)+1), np.full(len(stack.layers)+2, np.nan), np.zeros(len(stack.layers)+2)
 
-    positions = enumerate_positions(stack)
-    n_best = np.full(len(positions), np.nan, dtype=float)
-    dmf_best = np.full(len(positions), np.inf, dtype=float)
+    N = len(stack.layers)
+    positions = list(range(N)) + [-1, N]   # середины + границы
+    n_best = np.empty(len(positions), dtype=object)
+    dmf_best = np.empty(len(positions), dtype=float)
 
-    pols = ["s", "p"] if pol == "u" else [pol]
+    for k, pos in enumerate(positions):
+        if pos == -1:  # перед первым
+            ins_litera = "L" if stack.layers[0].litera == "H" else "H"
+        elif pos == N:  # после последнего
+            ins_litera = "L" if stack.layers[-1].litera == "H" else "H"
+        else:  # середина слоя
+            ins_litera = "L" if stack.layers[pos].litera == "H" else "H"
 
-    # если кэш не передан ─ строим локально
-    if base_cache is None:
-        base_cache = {}
-        for p in pols:
-            for il, wl in enumerate(wavelengths):
-                wl = float(wl)
-                M_full, q_in, q_sub = _M_stack(stack, wl, theta_inc, p)
-                r0, t0 = rt_amplitudes(stack, wl, theta_inc, p)
-                left_iface, right_iface, left_split, right_split = _prefix_suffix_mats_for_interfaces_and_splits(
-                    stack, wl, p, theta_inc
-                )
-                base_cache[(p, il)] = dict(
-                    wl=wl, M_full=M_full, q_in=q_in, q_sub=q_sub,
-                    r0=r0, t0=t0,
-                    left_iface=left_iface, right_iface=right_iface,
-                    left_split=left_split, right_split=right_split,
-                )
+        # подбираем набор n и q
+        if ins_litera == "H":
+            n_ins, q_ins = nH_values, qH
+        else:
+            n_ins, q_ins = nL_values, qL
 
-    has_R  = "R" in targets
-    has_T  = "T" in targets
-    has_pt = "phase_t" in targets
-    has_pr = "phase_r" in targets
+        # матрица вставки
+        phi_ins = 2.0 * np.pi * n_ins * d_min / wavelengths
+        sphi, cphi = np.sin(phi_ins), np.cos(phi_ins)
+        M_ins = make_M(sphi, cphi, q_ins, len(wavelengths))  # (2,2,K)
 
-    for idx_pos, pos in enumerate(positions):
-        best_val = np.inf
-        best_n   = np.nan
+        # собранная матрица
+        if pos == -1:  # перед первым
+            pref = np.tile(np.eye(2, dtype=complex)[:,:,None], (1,1,len(wavelengths)))
+            suff = stack.M
+            pref, mins, suff = pref.transpose(2,0,1), M_ins.transpose(2,0,1), suff.transpose(2,0,1)
+        elif pos == N:  # после последнего
+            pref = stack.M
+            suff = np.tile(np.eye(2, dtype=complex)[:,:,None], (1,1,len(wavelengths)))
+            pref, mins, suff = pref.transpose(2,0,1), M_ins.transpose(2,0,1), suff.transpose(2,0,1)
+        else:  # середина
+            pref = stack.prefix[pos].transpose(2,0,1)
+            mins = M_ins.transpose(2,0,1)
+            suff = stack.suffix[pos].transpose(2,0,1)
 
-        for n_new_val in n_candidates:
-            n_new = complex(n_new_val)
-            accum = 0.0
+        M_tot = np.einsum("lij,ljk,lkm->lim", pref, mins, suff).transpose(1,2,0)
 
-            for p in pols:
-                for il, _ in enumerate(wavelengths):
-                    c = base_cache[(p, il)]
-                    wl     = c["wl"]
-                    M_full = c["M_full"]
-                    q_in   = c["q_in"]
-                    q_sub  = c["q_sub"]
-                    r0     = c["r0"]
-                    t0     = c["t0"]
+        # амплитуды и коэффициенты
+        r, t = rt_amplitudes(M_tot, q_in, q_sub)
+        R, T = RT_coeffs(r, t, q_in, q_sub)
 
-                    if pos[0] == "interface":
-                        left  = c["left_iface"][pos[1]]
-                        right = c["right_iface"][pos[1]]
-                    else:
-                        left  = c["left_split"][pos[1]]
-                        right = c["right_split"][pos[1]]
+        tmp_stack = Stack(layers=stack.layers, prefix=stack.prefix, suffix=stack.suffix,
+                          M=M_tot, r=r, t=t, R=R, T=T)
+        mf_new = rms_merit(tmp_stack, q_in, q_sub, wavelengths, targets, pol, theta_inc)
 
-                    # матрица dM/dd при d=0
-                    dM = _dM_layer_dd_at_zero(n_new, n_of(stack.n_inc, wl), wl, p, theta_inc)
-                    M_new = left @ dM @ right
+        dmf_best[k] = base_MF - mf_new
+        n_best[k] = ins_litera
 
-                    dr, dt = _dr_dt_from_dM(M_full, q_in, q_sub, M_new)
+    return np.array(positions), n_best, dmf_best
 
-                    if has_R:
-                        accum += np.real(2.0 * np.conj(r0) * dr)
-                    if has_T:
-                        accum += np.real(2.0 * np.conj(t0) * dt)
-                    if has_pt:
-                        accum += 2.0 * (np.imag(np.conj(t0) * dt))
-                    if has_pr:
-                        accum += 2.0 * (np.imag(np.conj(r0) * dr))
 
-            if accum < best_val:
-                best_val = accum
-                best_n   = n_new_val
-
-        dmf_best[idx_pos] = best_val
-        n_best[idx_pos]   = best_n
-
-    return positions, n_best, dmf_best
 
 
 # ---------------------------
@@ -238,11 +148,14 @@ def needle_cycle(
     stack: Stack,
     wavelengths: np.ndarray,
     targets: dict,
-    n_candidates: List[float],
-    q_in: complex,
-    q_sub: complex,
-    pol: str = "s",
-    theta_inc: float = 0.0,
+    nH_values: np.ndarray,
+    nL_values: np.ndarray,
+    q_in: np.ndarray,
+    q_sub: np.ndarray,
+    qH: np.ndarray,
+    qL: np.ndarray,
+    pol: str,
+    theta_inc: np.ndarray,
     d_init: float = 2e-9,
     d_eps: float = 5e-10,
     coord_step_rel: float = 0.25,
@@ -275,27 +188,14 @@ def needle_cycle(
         # ======================
         # 1. построение P-карты
         # ======================
-        pols = ["s", "p"] if pol == "u" else [pol]
-        for p in pols:
-            for il, wl in enumerate(wavelengths):
-                wl = float(wl)
-                M_full, q_in, q_sub = _M_stack(current, wl, theta_inc, p)
-                r0, t0_amp = rt_amplitudes(current, wl, theta_inc, p)
-                left_iface, right_iface, left_split, right_split = _prefix_suffix_mats_for_interfaces_and_splits(
-                    current, wl, p, theta_inc
-                )
-                base_cache = []
-                base_cache[(p, il)] = dict(
-                    wl=wl, M_full=M_full, q_in=q_in, q_sub=q_sub,
-                    r0=r0, t0=t0_amp,
-                    left_iface=left_iface, right_iface=right_iface,
-                    left_split=left_split, right_split=right_split,
-                )
-
         positions, n_best, dmf_best = analytic_excitation_map(
-            current, wavelengths, targets, n_candidates,
-            pol=pol, theta_inc=theta_inc, d_min=d_min,
+            current, q_in, q_sub, qH, qL, nH_values, nL_values,
+            wavelengths, targets,
+            pol, theta_inc, d_min
         )
+        print(positions)
+        print(n_best)
+        print(dmf_best)
 
         # выбор лучшей позиции
         idx_best = int(np.argmin(dmf_best))
@@ -303,6 +203,8 @@ def needle_cycle(
             break
         pos_best = positions[idx_best]
         n_new = n_best[idx_best]
+        print(pos_best)
+        print(n_new)
 
         # ============================
         # 2. вставка нового слоя

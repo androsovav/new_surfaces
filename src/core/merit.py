@@ -11,34 +11,30 @@ def _phase(z: np.ndarray | complex) -> np.ndarray:
 
 def rms_merit(
     stack: Stack,
-    q_in, q_sub,
+    q_in: np.ndarray, q_sub,
     wavelengths: np.ndarray,
     targets: dict[str, dict[str, np.ndarray]],
-    pol: Literal["s","p","u"] = "s",
-    theta_inc: float = 0.0,
+    pol: Literal["s","p"],
+    theta_inc: np.ndarray
 ) -> float:
     """
     Универсальная RMS-мерит функция для многокритериальных целей.
     """
     errs = []
 
-    if "R" in targets or "T" in targets:
-        R, T = RT(stack, q_in, q_sub, wavelengths, theta_inc=theta_inc, pol=pol)
-        if "R" in targets:
-            resid = (R - targets["R"]["target"]) / targets["R"]["sigma"]
-            errs.append(resid**2)
-        if "T" in targets:
-            resid = (T - targets["T"]["target"]) / targets["T"]["sigma"]
-            errs.append(resid**2)
+    if "R" in targets:
+        R = stack.R
+        resid = (R - targets["R"]["target"]) / targets["R"]["sigma"]
+        errs.append(resid**2)
+    if "T" in targets:
+        T = stack.T
+        resid = (T - targets["T"]["target"]) / targets["T"]["sigma"]
+        errs.append(resid**2)
 
     if "phase_t" in targets or "phase_r" in targets:
         if pol == "u":
             raise ValueError("Фазовые цели нельзя задавать при pol='u'; выберите 's' или 'p'.")
-        r, t = [], []
-        for wl in wavelengths:
-            ri, ti = rt_amplitudes(stack, float(wl), theta_inc, pol)
-            r.append(ri); t.append(ti)
-        r = np.array(r); t = np.array(t)
+        r, t = stack.r, stack.t
         if "phase_t" in targets:
             resid = (_phase(t) - targets["phase_t"]["target"]) / targets["phase_t"]["sigma"]
             errs.append(resid**2)

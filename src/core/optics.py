@@ -22,6 +22,10 @@ class Stack:
     prefix: np.ndarray     # префиксное произведение (3D массив)
     suffix: np.ndarray     # суффиксное произведение (3D массив)
     M: np.ndarray     # M всего стэка (3D массив)
+    r: np.ndarray
+    t: np.ndarray
+    R: np.ndarray
+    T: np.ndarray
 
 def n_of(nspec: NType, A: float, wl: float) -> complex:
     """
@@ -63,13 +67,28 @@ def make_M(sphi: np.ndarray, cphi: np.ndarray, q: np.ndarray, n: int) -> np.ndar
     M[1, 1] = cphi
     return M
 
-def rt_amplitudes(stack: Stack, q_in, q_sub, wl: float, theta_inc: float, pol: Literal["s","p"]) -> Tuple[complex, complex]:
-    M = stack.M
-    m11, m12, m21, m22 = M[0,0], M[0,1], M[1,0], M[1,1]
-    denom = (m11 + m12 * q_sub) * q_in + (m21 + m22 * q_sub)
-    r = ((m11 + m12 * q_sub) * q_in - (m21 + m22 * q_sub)) / denom
-    t =  2.0 * q_in / denom
+def rt_amplitudes(M: np.ndarray, q_in: np.ndarray, q_sub: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Вычисляет амплитуды r, t для всего стека.
+    M – матрицы стека (2,2,nλ)
+    q_in, q_sub – параметры среды и подложки (nλ,)
+    """
+    A, B, C, D = M[0,0], M[0,1], M[1,0], M[1,1]
+    X = A + B*q_sub
+    Y = C + D*q_sub
+    denom = X*q_in + Y
+    r = (X*q_in - Y) / denom
+    t = (2*q_in) / denom
     return r, t
+
+def RT_coeffs(r: np.ndarray, t: np.ndarray, q_in: np.ndarray, q_sub: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Вычисляет коэффициенты отражения и пропускания (энергетические).
+    """
+    R = np.abs(r)**2
+    T = (np.real(q_sub) / np.real(q_in)) * np.abs(t)**2
+    return R, T
+
 
 def RT_single(stack: Stack, q_in, q_sub, wl: float, theta_inc: float, pol: Literal["s","p"]) -> Tuple[float, float]:
     r, t = rt_amplitudes(stack, q_in, q_sub, wl, theta_inc, pol)

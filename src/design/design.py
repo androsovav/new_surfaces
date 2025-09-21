@@ -2,11 +2,12 @@
 from __future__ import annotations
 from typing import List, Callable, Literal
 import numpy as np
-from ..core.optics import NType, n_of, Layer, Stack, cos_theta_in_layer, q_parameter, phi_parameter, make_M
+from ..core.optics import NType, n_of, Layer, Stack, cos_theta_in_layer, q_parameter, phi_parameter, make_M, rt_amplitudes, RT_coeffs
 
 def make_stack(start_flag: Literal["H", "L"], thickness: np.ndarray, 
                n_inc_values: np.ndarray, n_sub_values: np.ndarray, nH_values: np.ndarray, nL_values: np.ndarray, 
-               cos_theta_in_H_layers: np.ndarray, cos_theta_in_L_layers: np.ndarray, qH: complex,
+               cos_theta_in_H_layers: np.ndarray, cos_theta_in_L_layers: np.ndarray,
+                q_in: np.ndarray, q_sub: np.ndarray, qH: complex,
                 qL: complex, wavelengths: np.ndarray, n_wavelengths: int, pol: Literal["s","p"]) -> Stack:
     
     num_of_layers = len(thickness)
@@ -87,8 +88,14 @@ def make_stack(start_flag: Literal["H", "L"], thickness: np.ndarray,
         
         suffix[-(i+1)] = np.einsum('ijk,jlk->ilk', M_half_rev, right)
         right = np.einsum('ijk,jlk->ilk', layer_rev.M, right)
+
+    M=left
+
+    # амплитуды
+    r, t = rt_amplitudes(M, q_in, q_sub)
+    R, T = RT_coeffs(r, t, q_in, q_sub)
     
-    return Stack(layers=layers, prefix=prefix, suffix=suffix, M=left)
+    return Stack(layers=layers, prefix=prefix, suffix=suffix, M=M, r=r, t=t, R=R, T=T)
 
 def with_dispersion(n_func_H: Callable[[float], complex], n_func_L: Callable[[float], complex],
                     dH: float, dL: float, periods: int, n_inc: float, n_sub: float) -> Stack:
