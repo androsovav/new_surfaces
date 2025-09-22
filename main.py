@@ -122,16 +122,16 @@ def run_random_search():
 
 
 if __name__ == "__main__":
-    n_wavelengths = 2001
+    n_wavelengths = 1001
     wavelengths = np.linspace(1000e-9, 1100e-9, n_wavelengths)
     quarter_at = 1050e-9
     n_inc_values = np.array([n_of(n_cauchy, 1.0, wl) for wl in wavelengths])
     n_sub_values = np.array([n_of(n_cauchy, 1.52, wl) for wl in wavelengths])
     nH_values = np.array([n_of(n_cauchy, 2.35, wl) for wl in wavelengths])
     nL_values = np.array([n_of(n_cauchy, 1.45, wl) for wl in wavelengths])
-    dH = (quarter_at / (4.0 * np.real(n_of(n_cauchy, 2.35, wl=550e-9))))
-    dL = (quarter_at / (4.0 * np.real(n_of(n_cauchy, 1.45, wl=550e-9))))
-    pol = "s"
+    dH = (quarter_at / (4.0 * np.real(n_of(n_cauchy, 2.35, wl=1050e-9))))
+    dL = (quarter_at / (4.0 * np.real(n_of(n_cauchy, 1.45, wl=1050e-9))))
+    pol = "p"
     theta_inc=0
     cos_theta_in_inc = cos_theta_in_layer(n_inc_values, n_inc_values, theta_inc)
     cos_theta_in_sub = cos_theta_in_layer(n_sub_values, n_inc_values, theta_inc)
@@ -148,7 +148,7 @@ if __name__ == "__main__":
     q_in = q_parameter(n_inc_values, np.cos(theta_inc), pol)
     q_sub = q_parameter(n_sub_values, cos_theta_in_layer(n_sub_values, n_inc_values, theta_inc), pol)
     stack0 = make_stack(start_flag="H",
-                    thickness = np.array([dH, dL, dH, dL, dH, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL]),
+                    thickness = np.array([dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL]),
                     n_inc_values=n_inc_values, 
                     n_sub_values=n_sub_values, 
                     nH_values=nH_values,
@@ -188,13 +188,13 @@ if __name__ == "__main__":
         qL=qL,
         kH=kH,
         kL=kL,
-        d_init=5e-9,
+        d_init=1e-9,
         d_eps=1e-10,
         coord_step_rel=0.25,
-        coord_min_step_rel=0.02,
-        coord_iters=10,
+        coord_min_step_rel=0.01,
+        coord_iters=15,
         d_min=0.5e-9,
-        max_steps=10,
+        max_steps=15,
         min_rel_improv=1e-4,
         max_layers=200,
         max_tot_nmopt=1e9,
@@ -205,6 +205,8 @@ if __name__ == "__main__":
     stack, info = needle_cycle(stack=stack0, **common_kwargs)
     t1 = time.perf_counter()
     print("old_merit: "+str(old_merit))
+    print("new_merit: "+str(rms_merit(q_in, q_sub, wavelengths, targets, pol, theta_inc, stack.r, stack.t, stack.R, stack.T)))
     print("info: "+str(info))
     print("needle_cycle time: "+str(t1-t0))
+    plot_stack_spectra(stack0, wavelengths)
     plot_stack_spectra(stack, wavelengths)
