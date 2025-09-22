@@ -116,12 +116,14 @@ if __name__ == "__main__":
     q_sub = q_parameter(n_sub_values, cos_theta_in_sub, pol)
     qH = q_parameter(nH_values, cos_theta_in_H_layers, pol)
     qL = q_parameter(nL_values, cos_theta_in_L_layers, pol)
+    kH = 2.0 * np.pi * nH_values * cos_theta_in_H_layers / wavelengths
+    kL = 2.0 * np.pi * nL_values * cos_theta_in_L_layers / wavelengths
 
     # неизменны для данной задачи
     q_in = q_parameter(n_inc_values, np.cos(theta_inc), pol)
     q_sub = q_parameter(n_sub_values, cos_theta_in_layer(n_sub_values, n_inc_values, theta_inc), pol)
     stack0 = make_stack(start_flag="H",
-                    thickness = np.array([dH, dL]),
+                    thickness = np.array([dH, dL, dH, dL, dH, dL]),
                     n_inc_values=n_inc_values, 
                     n_sub_values=n_sub_values, 
                     nH_values=nH_values,
@@ -136,11 +138,8 @@ if __name__ == "__main__":
                     n_wavelengths=n_wavelengths,
                     pol=pol)
     targets = combine_targets(target_AR(wavelengths, R_target=0.0, sigma=0.03))
-    t0 = time.perf_counter()
+    
     merit = rms_merit(q_in, q_sub, wavelengths, targets, pol, theta_inc, stack0.r, stack0.t, stack0.R, stack0.T)
-    t1 = time.perf_counter()
-    print("time")
-    print(t1-t0)
     print(merit)
     n_cands = [nH_values, nL_values]
     common_kwargs = dict(
@@ -158,6 +157,8 @@ if __name__ == "__main__":
         q_sub=q_sub,
         qH=qH,
         qL=qL,
+        kH=kH,
+        kL=kL,
         d_init=2e-9,
         d_eps=5e-10,
         coord_step_rel=0.25,
