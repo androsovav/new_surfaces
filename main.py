@@ -4,11 +4,36 @@ import time
 from src.core.optics import n_of, n_cauchy, q_parameter, cos_theta_in_layer
 from src.core.merit import rms_merit
 from src.design.design import make_stack
-from src.design.targets import target_AR, combine_targets
+from src.design.targets import target_AR, combine_targets, target_bandpass
 from src.algorithms.needle import needle_cycle
 from src.algorithms.evolution import random_starts_search
 from src.engine.report import print_report
+import matplotlib.pyplot as plt
 
+def plot_stack_spectra(stack, wavelengths):
+    wl_nm = wavelengths * 1e9  # перевод в нм для удобства
+
+    fig, axs = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+
+    # Энергетические коэффициенты
+    axs[0].plot(wl_nm, stack.R, label="R (Reflectance)")
+    axs[0].plot(wl_nm, stack.T, label="T (Transmittance)")
+    axs[0].set_ylabel("R, T")
+    axs[0].legend()
+    axs[0].grid(True)
+
+    # Амплитудные коэффициенты (модуль и фаза)
+    axs[1].plot(wl_nm, np.abs(stack.r), label="|r|")
+    axs[1].plot(wl_nm, np.abs(stack.t), label="|t|")
+    axs[1].plot(wl_nm, np.angle(stack.r), "--", label="arg(r)")
+    axs[1].plot(wl_nm, np.angle(stack.t), "--", label="arg(t)")
+    axs[1].set_xlabel("Wavelength (nm)")
+    axs[1].set_ylabel("Amplitude / Phase")
+    axs[1].legend()
+    axs[1].grid(True)
+
+    plt.tight_layout()
+    plt.show()
 
 def run_needle_cycle():
     print("=== ANALYTIC P-map (single run) ===")
@@ -97,9 +122,9 @@ def run_random_search():
 
 
 if __name__ == "__main__":
-    n_wavelengths = 1001
-    wavelengths = np.linspace(500e-9, 600e-9, n_wavelengths)
-    quarter_at = 550e-9
+    n_wavelengths = 2001
+    wavelengths = np.linspace(1000e-9, 1100e-9, n_wavelengths)
+    quarter_at = 1050e-9
     n_inc_values = np.array([n_of(n_cauchy, 1.0, wl) for wl in wavelengths])
     n_sub_values = np.array([n_of(n_cauchy, 1.52, wl) for wl in wavelengths])
     nH_values = np.array([n_of(n_cauchy, 2.35, wl) for wl in wavelengths])
@@ -107,7 +132,7 @@ if __name__ == "__main__":
     dH = (quarter_at / (4.0 * np.real(n_of(n_cauchy, 2.35, wl=550e-9))))
     dL = (quarter_at / (4.0 * np.real(n_of(n_cauchy, 1.45, wl=550e-9))))
     pol = "s"
-    theta_inc=0.5
+    theta_inc=0
     cos_theta_in_inc = cos_theta_in_layer(n_inc_values, n_inc_values, theta_inc)
     cos_theta_in_sub = cos_theta_in_layer(n_sub_values, n_inc_values, theta_inc)
     cos_theta_in_H_layers = cos_theta_in_layer(nH_values, n_inc_values, theta_inc)
@@ -123,7 +148,7 @@ if __name__ == "__main__":
     q_in = q_parameter(n_inc_values, np.cos(theta_inc), pol)
     q_sub = q_parameter(n_sub_values, cos_theta_in_layer(n_sub_values, n_inc_values, theta_inc), pol)
     stack0 = make_stack(start_flag="H",
-                    thickness = np.array([dH, dL, dH, dL, dH, dL]),
+                    thickness = np.array([dH, dL, dH, dL, dH, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL]),
                     n_inc_values=n_inc_values, 
                     n_sub_values=n_sub_values, 
                     nH_values=nH_values,
@@ -137,10 +162,14 @@ if __name__ == "__main__":
                     wavelengths=wavelengths,
                     n_wavelengths=n_wavelengths,
                     pol=pol)
-    targets = combine_targets(target_AR(wavelengths, R_target=0.0, sigma=0.03))
+    targets = targets = combine_targets(target_bandpass(
+        wavelengths,
+        passbands=[(1045e-9, 1055e-9)],  # диапазон прозрачности
+        sigma_pass=0.2,  # sigma в полосе
+        sigma_stop=0.2   # sigma вне полосы
+    ))
     
-    merit = rms_merit(q_in, q_sub, wavelengths, targets, pol, theta_inc, stack0.r, stack0.t, stack0.R, stack0.T)
-    print(merit)
+    old_merit = rms_merit(q_in, q_sub, wavelengths, targets, pol, theta_inc, stack0.r, stack0.t, stack0.R, stack0.T)
     n_cands = [nH_values, nL_values]
     common_kwargs = dict(
         wavelengths=wavelengths,
@@ -159,22 +188,23 @@ if __name__ == "__main__":
         qL=qL,
         kH=kH,
         kL=kL,
-        d_init=2e-9,
-        d_eps=5e-10,
+        d_init=5e-9,
+        d_eps=1e-10,
         coord_step_rel=0.25,
         coord_min_step_rel=0.02,
-        coord_iters=5,
+        coord_iters=10,
         d_min=0.5e-9,
         max_steps=10,
-        min_rel_improv=1e-3,
+        min_rel_improv=1e-4,
         max_layers=200,
         max_tot_nmopt=1e9,
-        wl_ref_for_tot=550e-9,
+        wl_ref_for_tot=1050e-9,
         verbose=True,
     )
     t0 = time.perf_counter()
     stack, info = needle_cycle(stack=stack0, **common_kwargs)
     t1 = time.perf_counter()
-    print("stack: "+str(stack))
+    print("old_merit: "+str(old_merit))
     print("info: "+str(info))
     print("needle_cycle time: "+str(t1-t0))
+    plot_stack_spectra(stack, wavelengths)
