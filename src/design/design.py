@@ -132,3 +132,72 @@ def random_start_stack(n_inc: float, n_sub: float, nH: float, nL: float,
         d = float(rng.uniform(d_min, d_max))
         layers.append(Layer(n=n, d=d))
     return Stack(layers=layers, n_inc=n_inc, n_sub=n_sub)
+
+def make_stack_from_letters(
+    letters: List[Literal["H","L"]],
+    thickness: np.ndarray,
+    n_inc_values: np.ndarray,
+    n_sub_values: np.ndarray,
+    nH_values: np.ndarray,
+    nL_values: np.ndarray,
+    cos_theta_in_H_layers: np.ndarray,
+    cos_theta_in_L_layers: np.ndarray,
+    q_in: np.ndarray,
+    q_sub: np.ndarray,
+    qH: np.ndarray,
+    qL: np.ndarray,
+    wavelengths: np.ndarray,
+    n_wavelengths: int,
+    pol: Literal["s","p"],
+) -> Stack:
+    """
+    Полностью повторяет логику сборки из design.make_stack, но вместо
+    автоматического чередования использует заданный массив букв.
+    """
+    num_layers = len(thickness)
+    layers = np.empty(num_layers, dtype=object)
+
+    for i, litera in enumerate(letters):
+        if litera == "H":
+            phi = phi_parameter(nH_values, float(thickness[i]), cos_theta_in_H_layers, wavelengths)
+            sphi, cphi = np.sin(phi), np.cos(phi)
+            M = make_M(sphi, cphi, qH, n_wavelengths)
+        else:
+            phi = phi_parameter(nL_values, float(thickness[i]), cos_theta_in_L_layers, wavelengths)
+            sphi, cphi = np.sin(phi), np.cos(phi)
+            M = make_M(sphi, cphi, qL, n_wavelengths)
+        layers[i] = Layer(litera=litera, d=float(thickness[i]), phi=phi, sphi=sphi, cphi=cphi, M=M)
+
+    # Префиксы/суффиксы на «половинках» слоёв — как в design.make_stack
+    prefix = np.empty((num_layers, 2, 2, n_wavelengths), dtype=complex)
+    suffix = np.empty((num_layers, 2, 2, n_wavelengths), dtype=complex)
+    left = np.tile(np.eye(2, dtype=complex)[:, :, np.newaxis], (1, 1, n_wavelengths))
+    right = np.tile(np.eye(2, dtype=complex)[:, :, np.newaxis], (1, 1, n_wavelengths))
+
+    for i in range(num_layers):
+        L = layers[i]; half_d = 0.5 * L.d
+        if L.litera == "H":
+            phi_half = phi_parameter(nH_values, half_d, cos_theta_in_H_layers, wavelengths)
+            M_half = make_M(np.sin(phi_half), np.cos(phi_half), qH, n_wavelengths)
+        else:
+            phi_half = phi_parameter(nL_values, half_d, cos_theta_in_L_layers, wavelengths)
+            M_half = make_M(np.sin(phi_half), np.cos(phi_half), qL, n_wavelengths)
+
+        prefix[i] = np.einsum('ijk,jlk->ilk', left, M_half)
+        left = np.einsum('ijk,jlk->ilk', left, L.M)
+
+        Lr = layers[-(i+1)]; half_dr = 0.5 * Lr.d
+        if Lr.litera == "H":
+            phi_half_r = phi_parameter(nH_values, half_dr, cos_theta_in_H_layers, wavelengths)
+            M_half_r = make_M(np.sin(phi_half_r), np.cos(phi_half_r), qH, n_wavelengths)
+        else:
+            phi_half_r = phi_parameter(nL_values, half_dr, cos_theta_in_L_layers, wavelengths)
+            M_half_r = make_M(np.sin(phi_half_r), np.cos(phi_half_r), qL, n_wavelengths)
+
+        suffix[-(i+1)] = np.einsum('ijk,jlk->ilk', M_half_r, right)
+        right = np.einsum('ijk,jlk->ilk', Lr.M, right)
+
+    M_tot = left
+    r, t = rt_amplitudes(M_tot, q_in, q_sub)
+    R, T = RT_coeffs(r, t, q_in, q_sub)
+    return Stack(layers=layers, prefix=prefix, suffix=suffix, M=M_tot, r=r, t=t, R=R, T=T)

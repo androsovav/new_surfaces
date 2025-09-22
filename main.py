@@ -163,13 +163,18 @@ if __name__ == "__main__":
         d_eps=5e-10,
         coord_step_rel=0.25,
         coord_min_step_rel=0.02,
-        coord_iters=3,
+        coord_iters=5,
         d_min=0.5e-9,
-        max_steps=5,
-        min_rel_improv=1e-2,
+        max_steps=10,
+        min_rel_improv=1e-3,
         max_layers=200,
         max_tot_nmopt=1e9,
         wl_ref_for_tot=550e-9,
         verbose=True,
     )
+    t0 = time.perf_counter()
     stack, info = needle_cycle(stack=stack0, **common_kwargs)
+    t1 = time.perf_counter()
+    print("stack: "+str(stack))
+    print("info: "+str(info))
+    print("needle_cycle time: "+str(t1-t0))

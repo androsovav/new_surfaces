@@ -1,9 +1,25 @@
 # src/core/metrics.py
-from __future__ import annotations
-from .optics import Stack, n_of
+import numpy as np
+from ..core.optics import Stack
 
-def layer_count(stack: Stack) -> int:
-    return len(stack.layers)
+def total_optical_thickness(
+    stack: Stack,
+    wl_ref: float,
+    nH_values: np.ndarray,
+    nL_values: np.ndarray,
+    wavelengths: np.ndarray,
+) -> float:
+    """
+    Считает суммарную оптическую толщину стека при опорной длине волны wl_ref.
+    Берёт показатель преломления из nH_values / nL_values при ближайшей длине волны.
+    """
+    # индекс ближайшей длины волны
+    idx = int(np.argmin(np.abs(wavelengths - wl_ref)))
+    nH = np.real(nH_values[idx])
+    nL = np.real(nL_values[idx])
 
-def total_optical_thickness(stack: Stack, wl_ref: float) -> float:
-    return float(sum(n_of(L.n, wl_ref).real * L.d for L in stack.layers))
+    total = 0.0
+    for L in stack.layers:
+        n = nH if L.litera == "H" else nL
+        total += n * L.d
+    return float(total)

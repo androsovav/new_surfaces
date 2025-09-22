@@ -1,7 +1,7 @@
 # src/engine/report.py
 from __future__ import annotations
 from typing import Dict, Any, List
-from ..core.metrics import layer_count, total_optical_thickness
+from ..core.metrics import total_optical_thickness
 from ..core.merit import rms_merit
 from ..core.optics import Stack
 import numpy as np
@@ -19,7 +19,7 @@ def summarize_result(
     Формирует строковый отчёт о результате оптимизации.
     """
     mf = rms_merit(stack, wavelengths, targets, pol=pol)
-    N = layer_count(stack)
+    N = len(stack.layers)
     TOT = total_optical_thickness(stack, wl_ref) / 1e-9
 
     lines = []

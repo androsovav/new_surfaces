@@ -9,81 +9,14 @@ from ..core.optics import (
 )
 from ..core.merit import rms_merit
 from ..algorithms.optimizers import coordinate_descent_thicknesses
-from ..core.metrics import layer_count, total_optical_thickness
-
+from ..core.metrics import total_optical_thickness
+from ..design.design import make_stack_from_letters
 
 # ---------------------------
 # Вспомогательная сборка стека по произвольной H/L-последовательности
 # (аналог design.make_stack, но принимает letters[])
 # ---------------------------
-def make_stack_from_letters(
-    letters: List[Literal["H","L"]],
-    thickness: np.ndarray,
-    n_inc_values: np.ndarray,
-    n_sub_values: np.ndarray,
-    nH_values: np.ndarray,
-    nL_values: np.ndarray,
-    cos_theta_in_H_layers: np.ndarray,
-    cos_theta_in_L_layers: np.ndarray,
-    q_in: np.ndarray,
-    q_sub: np.ndarray,
-    qH: np.ndarray,
-    qL: np.ndarray,
-    wavelengths: np.ndarray,
-    n_wavelengths: int,
-    pol: Literal["s","p"],
-) -> Stack:
-    """
-    Полностью повторяет логику сборки из design.make_stack, но вместо
-    автоматического чередования использует заданный массив букв.
-    """
-    num_layers = len(thickness)
-    layers = np.empty(num_layers, dtype=object)
 
-    for i, litera in enumerate(letters):
-        if litera == "H":
-            phi = phi_parameter(nH_values, float(thickness[i]), cos_theta_in_H_layers, wavelengths)
-            sphi, cphi = np.sin(phi), np.cos(phi)
-            M = make_M(sphi, cphi, qH, n_wavelengths)
-        else:
-            phi = phi_parameter(nL_values, float(thickness[i]), cos_theta_in_L_layers, wavelengths)
-            sphi, cphi = np.sin(phi), np.cos(phi)
-            M = make_M(sphi, cphi, qL, n_wavelengths)
-        layers[i] = Layer(litera=litera, d=float(thickness[i]), phi=phi, sphi=sphi, cphi=cphi, M=M)
-
-    # Префиксы/суффиксы на «половинках» слоёв — как в design.make_stack
-    prefix = np.empty((num_layers, 2, 2, n_wavelengths), dtype=complex)
-    suffix = np.empty((num_layers, 2, 2, n_wavelengths), dtype=complex)
-    left = np.tile(np.eye(2, dtype=complex)[:, :, np.newaxis], (1, 1, n_wavelengths))
-    right = np.tile(np.eye(2, dtype=complex)[:, :, np.newaxis], (1, 1, n_wavelengths))
-
-    for i in range(num_layers):
-        L = layers[i]; half_d = 0.5 * L.d
-        if L.litera == "H":
-            phi_half = phi_parameter(nH_values, half_d, cos_theta_in_H_layers, wavelengths)
-            M_half = make_M(np.sin(phi_half), np.cos(phi_half), qH, n_wavelengths)
-        else:
-            phi_half = phi_parameter(nL_values, half_d, cos_theta_in_L_layers, wavelengths)
-            M_half = make_M(np.sin(phi_half), np.cos(phi_half), qL, n_wavelengths)
-
-        prefix[i] = np.einsum('ijk,jlk->ilk', left, M_half)
-        left = np.einsum('ijk,jlk->ilk', left, L.M)
-
-        Lr = layers[-(i+1)]; half_dr = 0.5 * Lr.d
-        if Lr.litera == "H":
-            phi_half_r = phi_parameter(nH_values, half_dr, cos_theta_in_H_layers, wavelengths)
-            M_half_r = make_M(np.sin(phi_half_r), np.cos(phi_half_r), qH, n_wavelengths)
-        else:
-            phi_half_r = phi_parameter(nL_values, half_dr, cos_theta_in_L_layers, wavelengths)
-            M_half_r = make_M(np.sin(phi_half_r), np.cos(phi_half_r), qL, n_wavelengths)
-
-        suffix[-(i+1)] = np.einsum('ijk,jlk->ilk', M_half_r, right)
-        right = np.einsum('ijk,jlk->ilk', Lr.M, right)
-
-    M_tot = left
-    r, t = rt_amplitudes(M_tot, q_in, q_sub)
-    R, T = RT_coeffs(r, t, q_in, q_sub)
-    return Stack(layers=layers, prefix=prefix, suffix=suffix, M=M_tot, r=r, t=t, R=R, T=T)
 
 
 # ---------------------------
@@ -296,10 +229,7 @@ def needle_cycle(
 
         # 2) Реальная вставка слоя толщиной d_init и пересборка стека
         letters = [L.litera for L in current.layers]
-        th = np.array([L.d for L in current.layers], dtype=float)
-
-        pos = 6
-        ins = "H"        
+        th = np.array([L.d for L in current.layers], dtype=float)       
 
         if pos == -1:                      # перед первым слоем
             letters_new = [ins] + letters
@@ -327,18 +257,33 @@ def needle_cycle(
         # 3) Локальная доводка толщин (необязательна, но полезна)
         current, mf_after = coordinate_descent_thicknesses(
             current, wavelengths, targets,
-            pol=pol, theta_inc=theta_inc,
-            step_rel=coord_step_rel, min_step_rel=coord_min_step_rel,
-            iters=coord_iters, d_min=d_min, d_max=d_max
+            n_inc_values=n_inc_values,
+            n_sub_values=n_sub_values,
+            nH_values=nH_values,
+            nL_values=nL_values,
+            cos_theta_in_H_layers=cos_theta_in_H_layers,
+            cos_theta_in_L_layers=cos_theta_in_L_layers,
+            q_in=q_in,
+            q_sub=q_sub,
+            qH=qH,
+            qL=qL,
+            pol=pol,
+            theta_inc=theta_inc,
+            step_rel=coord_step_rel,
+            min_step_rel=coord_min_step_rel,
+            iters=coord_iters,
+            d_min=d_min,
+            d_max=d_max,
         )
+
         history.append({"step": step, "MF": mf_after})
 
         # 4) Критерии останова
         if mf_before - mf_after < min_rel_improv * max(1.0, mf_before):
             break
-        if layer_count(current) > max_layers:
+        if len(current.layers) > max_layers:
             break
-        if total_optical_thickness(current, wl_ref_for_tot) > max_tot_nmopt:
+        if total_optical_thickness(current, wl_ref_for_tot, nH_values, nL_values, wavelengths) > max_tot_nmopt:
             break
 
     elapsed = None
