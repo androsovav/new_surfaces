@@ -10,7 +10,7 @@ from ..core.optics import (
 from ..core.merit import rms_merit
 from ..algorithms.optimizers import coordinate_descent_thicknesses
 from ..core.metrics import total_optical_thickness
-from ..design.design import make_stack_from_letters
+from ..design.design import make_stack_from_letters, make_stack, add_prefix_and_suffix_to_stack
 
 # ---------------------------
 # Вспомогательная сборка стека по произвольной H/L-последовательности
@@ -77,8 +77,6 @@ def analytic_excitation_map(
     q_in: np.ndarray, q_sub: np.ndarray,
     qH: np.ndarray, qL: np.ndarray,
     kH: np.ndarray, kL: np.ndarray,
-    nH_values: np.ndarray, nL_values: np.ndarray,
-    n_inc_values: np.ndarray,
     wavelengths: np.ndarray,
     targets: dict,
     pol: Literal["s","p"],
@@ -94,12 +92,10 @@ def analytic_excitation_map(
       dmf:       массив ожидаемых уменьшений MF (чем больше — тем лучше)
     Теория и физическая интерпретация метода «игл» — A.V. Tikhonravov et al. (1996/1997). :contentReference[oaicite:6]{index=6}
     """
-    base_MF = rms_merit(q_in, q_sub, wavelengths, targets, pol, theta_inc, stack.r, stack.t, stack.R, stack.T)
     N = len(stack.layers)
     positions = [-1] + list(range(N)) + [N]
 
-    letters_best = np.empty(len(positions), dtype=object)
-    dmf_best = np.full(len(positions), -np.inf, dtype=float)
+    mf_best = np.full(len(positions), -np.inf, dtype=float)
 
     # Базовый M(λ) и удобные формы (K,2,2)
     M_tot = np.transpose(stack.M, (2,0,1))           # (K,2,2)
@@ -148,12 +144,10 @@ def analytic_excitation_map(
         T_new = alpha * (np.abs(t_new)**2)
 
         MF_new = rms_merit(q_in, q_sub, wavelengths, targets, pol, theta_inc, r_new, t_new, R_new, T_new)
-        dmf = float(base_MF - MF_new)
 
-        letters_best[k] = ins
-        dmf_best[k] = dmf
+        mf_best[k] = MF_new
 
-    return np.array(positions), letters_best, dmf_best
+    return np.array(positions), mf_best
 
 
 # ---------------------------
@@ -162,6 +156,7 @@ def analytic_excitation_map(
 def needle_cycle(
     stack: Stack,
     wavelengths: np.ndarray,
+    n_wavelengths: int,
     targets: dict,
     nH_values: np.ndarray,
     nL_values: np.ndarray,
@@ -204,61 +199,48 @@ def needle_cycle(
     for step in range(max_steps):
         mf_before = rms_merit(q_in, q_sub, wavelengths, targets, pol, theta_inc, current.r, current.t, current.R, current.T)
 
-        t0 = time.perf_counter()
         # 1) Аналитическая P-карта (по Тихонравову)
-        positions, letters_best, dmf_best = analytic_excitation_map(
+        positions, mf_best = analytic_excitation_map(
             current, q_in, q_sub, qH, qL, kH, kL,
-            nH_values, nL_values, n_inc_values,
             wavelengths, targets, pol, theta_inc, d_eps
         )
-        t1 = time.perf_counter()
-        print("time pmap: "+str(t1-t0))
 
         print("positions: "+str(positions))
-        print("letters_best: "+str(letters_best))
-        print("dmf_best: "+str(dmf_best))
+        print("mf_best: "+str(mf_best))
 
         # Лучшая точка вставки — по максимуму выигрыша
-        idx = int(np.argmax(dmf_best))
-        if not np.isfinite(dmf_best[idx]) or dmf_best[idx] <= 0.0:
+        idx = int(np.argmin(mf_best))
+        if not np.isfinite(mf_best[idx]) or (mf_before - mf_best[idx]) <= 0.0:
             # нет предсказанного улучшения
             break
 
         pos = int(positions[idx])
-        ins = str(letters_best[idx])
 
         # 2) Реальная вставка слоя толщиной d_init и пересборка стека
-        letters = [L.litera for L in current.layers]
-        th = np.array([L.d for L in current.layers], dtype=float)       
+        th = np.array([L.d for L in current.layers], dtype=float)
+        start_flag = current.layers[0].litera       
 
         if pos == -1:                      # перед первым слоем
-            letters_new = [ins] + letters
+            if start_flag == "H":
+                start_flag = "L"
+            else:
+                start_flag = "H"
             th_new = np.insert(th, 0, d_init)
-        elif pos == len(letters):          # после последнего
-            letters_new = letters + [ins]
+        elif pos == len(th):          # после последнего
             th_new = np.append(th, d_init)
         else:                              # середина слоя pos
-            base_letter = letters[pos]
             d1 = 0.5 * th[pos]; d2 = th[pos] - d1
-            letters_new = letters[:pos] + [base_letter, ins, base_letter] + letters[pos+1:]
             th_new = np.concatenate([th[:pos], [d1, d_init, d2], th[pos+1:]])
 
-        current = make_stack_from_letters(
-            letters_new, th_new,
-            n_inc_values, n_sub_values, nH_values, nL_values,
-            cos_theta_in_H_layers, cos_theta_in_L_layers,
-            q_in, q_sub, qH, qL,
-            wavelengths, len(wavelengths), pol
-        )
+        current = make_stack(start_flag, th_new, nH_values, nL_values, cos_theta_in_H_layers, cos_theta_in_L_layers,
+                             q_in, q_sub, qH, qL, wavelengths, n_wavelengths, calculate_prefix_and_suffix_for_needle=False)
 
         new_merit = rms_merit(q_in, q_sub, wavelengths, targets, pol, theta_inc, current.r, current.t, current.R, current.T)
         print("new merit function: "+str(new_merit))
 
         # 3) Локальная доводка толщин (необязательна, но полезна)
         current, mf_after = coordinate_descent_thicknesses(
-            current, wavelengths, targets,
-            n_inc_values=n_inc_values,
-            n_sub_values=n_sub_values,
+            current, wavelengths, n_wavelengths, targets,
             nH_values=nH_values,
             nL_values=nL_values,
             cos_theta_in_H_layers=cos_theta_in_H_layers,
@@ -275,6 +257,9 @@ def needle_cycle(
             d_min=d_min,
             d_max=d_max,
         )
+
+        current = add_prefix_and_suffix_to_stack(current, wavelengths, nH_values, nL_values,
+                                                 cos_theta_in_H_layers, cos_theta_in_L_layers, qH, qL)
 
         history.append({"step": step, "MF": mf_after})
 

@@ -4,15 +4,14 @@ import numpy as np
 from typing import Tuple, Literal
 from ..core.optics import Stack
 from ..core.merit import rms_merit
-from ..design.design import make_stack_from_letters
+from ..design.design import make_stack
 
 
 def coordinate_descent_thicknesses(
     stack: Stack,
     wavelengths: np.ndarray,
+    n_wavelengths: int,
     targets: dict,
-    n_inc_values: np.ndarray,
-    n_sub_values: np.ndarray,
     nH_values: np.ndarray,
     nL_values: np.ndarray,
     cos_theta_in_H_layers: np.ndarray,
@@ -33,17 +32,17 @@ def coordinate_descent_thicknesses(
     Координатный спуск по толщинам с постепенным уменьшением шага.
     """
 
-    letters = [L.litera for L in stack.layers]
+    start_flag = stack.layers[0].litera
     thickness = np.array([L.d for L in stack.layers], dtype=float)
 
     # функция для пересборки стека
     def rebuild(th):
-        return make_stack_from_letters(
-            letters, th,
-            n_inc_values, n_sub_values, nH_values, nL_values,
-            cos_theta_in_H_layers, cos_theta_in_L_layers,
-            q_in, q_sub, qH, qL,
-            wavelengths, len(wavelengths), pol
+        return make_stack(
+            start_flag, th, nH_values,
+            nL_values, cos_theta_in_H_layers,
+            cos_theta_in_L_layers, q_in,
+            q_sub, qH, qL, wavelengths, n_wavelengths,
+            calculate_prefix_and_suffix_for_needle=False
         )
 
     base = rebuild(thickness)
@@ -76,5 +75,4 @@ def coordinate_descent_thicknesses(
             if step < min_step_rel:
                 break
 
-    final_stack = rebuild(thickness)
-    return final_stack, mf
+    return test, mf

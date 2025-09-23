@@ -2,7 +2,6 @@
 from __future__ import annotations
 import numpy as np
 from typing import Literal
-from .optics import Stack, RT, rt_amplitudes
 
 TargetKind = Literal["R", "T", "phase_t", "phase_r"]
 
