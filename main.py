@@ -36,7 +36,7 @@ def plot_stack_spectra(stack, wavelengths):
     plt.show()
 
 if __name__ == "__main__":
-    n_wavelengths = 1001
+    n_wavelengths = 3
     wavelengths = np.linspace(1000e-9, 1100e-9, n_wavelengths)
     quarter_at = 1050e-9
     n_inc_values = np.array([n_of(n_cauchy, 1.0, wl) for wl in wavelengths])
@@ -59,7 +59,7 @@ if __name__ == "__main__":
     kL = 2.0 * np.pi * nL_values * cos_theta_in_L_layers / wavelengths
     dM_in_H_layer = dM_layer_dd_at_zero(qH, kH, wavelengths)
     dM_in_L_layer = dM_layer_dd_at_zero(qL, kL, wavelengths)
-    thickness = np.array([dH, dL, dH, dL, dH, dL, dH, dL])
+    thickness = np.array([dH, dL])
     start_flag="H"
 
     # неизменны для данной задачи

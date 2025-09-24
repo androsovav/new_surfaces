@@ -6,7 +6,6 @@ from ..core.optics import Stack, make_M, rt_amplitudes, RT_coeffs
 from ..core.merit import rms_merit, rms_merit_layers
 from ..design.design import make_stack
 
-
 def coordinate_descent_thicknesses(
     stack: Stack,
     wavelengths: np.ndarray,

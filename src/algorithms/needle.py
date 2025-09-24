@@ -7,7 +7,7 @@ from typing import List, Tuple, Literal, Dict, Any
 from ..core.optics import (
     Stack, phi_parameter, make_M, rt_amplitudes, RT_coeffs
 )
-from ..core.merit import rms_merit
+from ..core.merit import rms_merit, rms_merit_layers
 from ..algorithms.optimizers import coordinate_descent_thicknesses
 from ..core.metrics import total_optical_thickness
 from ..design.design import make_stack_from_letters, make_stack, add_prefix_and_suffix_to_stack
@@ -16,24 +16,6 @@ from ..design.design import make_stack_from_letters, make_stack, add_prefix_and_
 # Вспомогательная сборка стека по произвольной H/L-последовательности
 # (аналог design.make_stack, но принимает letters[])
 # ---------------------------
-
-
-
-# ---------------------------
-# Производная матрицы слоя по толщине в нуле (игольчатая вариация)
-# ---------------------------
-def _dM_layer_dd_at_zero(q: np.ndarray, k: np.ndarray, wavelengths: np.ndarray) -> np.ndarray:
-    """
-    ∂M_layer/∂d |_{d=0} для всех λ: форма (2,2,K).
-    Здесь k = 2π n cosθ / λ; при d→0: cosφ≈1, sinφ≈φ=k d → dM/dd:
-      d/d(d) [ [cosφ, i sinφ / q], [i q sinφ, cosφ] ]_{d=0}
-      = [ [0, i k / q], [i q k, 0] ].
-    """
-    K = len(wavelengths)
-    dM = np.zeros((2, 2, K), dtype=complex)
-    dM[0, 1, :] = 1j * k / q
-    dM[1, 0, :] = 1j * q * k
-    return dM
 
 
 def _dr_dt_from_dM_vec(
@@ -53,8 +35,8 @@ def _dr_dt_from_dM_vec(
     m11 = M[0, 0, :]; m12 = M[0, 1, :]
     m21 = M[1, 0, :]; m22 = M[1, 1, :]
 
-    dm11 = dM[:, 0, 0]; dm12 = dM[:, 0, 1]
-    dm21 = dM[:, 1, 0]; dm22 = dM[:, 1, 1]
+    dm11 = dM[0, 0, :]; dm12 = dM[0, 1, :]
+    dm21 = dM[1, 0, :]; dm22 = dM[1, 1, :]
 
     A  = (m11 + m12 * q_sub) * q_in - (m21 + m22 * q_sub)
     B  = (m11 + m12 * q_sub) * q_in + (m21 + m22 * q_sub)
@@ -104,7 +86,7 @@ def analytic_excitation_map(
 
     M_total = stack.M
 
-    alpha = np.real(q_sub) / np.real(q_in)           # для T = alpha * |t|^2
+    alpha = np.real(q_sub/q_in)           # для T = alpha * |t|^2
 
     dM = np.empty((2, 2, num_of_layers, n_wavelengths), dtype=np.ndarray)
     if stack.start_flag == "H":
@@ -121,10 +103,33 @@ def analytic_excitation_map(
         stack.suffix
     )
 
-    _dr_dt_from_dM_vec()
+    dr, dt = _dr_dt_from_dM_vec(M_total, q_in, q_sub, dM_total_changed)
 
-    print("//")
-    print(np.shape(dM_total_changed))
+    print("dr")
+    print(np.shape(dr))
+    print("dt")
+    print(np.shape(dt))
+
+    # Линейные поправки на толщину e
+    r_new = stack.r + d_eps * dr
+    t_new = stack.t + d_eps * dt
+
+    print("r_new")
+    print(np.shape(r_new))
+    print("t_new")
+    print(np.shape(t_new))
+    # Энергетические коэффициенты до 1-го порядка
+    R_new = np.abs(r_new)**2
+    T_new = alpha * (np.abs(t_new)**2)
+
+    print("R_new")
+    print(np.shape(R_new))
+    print("T_new")
+    print(np.shape(T_new))
+    print("DEBUG shapes:", np.shape(r_new), np.shape(t_new), np.shape(R_new), np.shape(T_new))
+    MF_new = rms_merit_layers(q_in, q_sub, wavelengths, targets, pol, theta_inc, r_new, t_new, R_new, T_new)
+    print(np.shape(MF_new))
+    quit()
 
     for pos in positions:
         # Выбор комплементарной «иглы» (H↔L) в этой позиции
@@ -172,10 +177,14 @@ def analytic_excitation_map(
 
         MF_new = rms_merit(q_in, q_sub, wavelengths, targets, pol, theta_inc, r_new, t_new, R_new, T_new)
 
-        mf_best[k] = MF_new
-
+        mf_best[pos] = MF_new
+    
+    print("positions")
+    print(positions)
+    print("mf_best")
+    print(mf_best)
     quit()
-    return np.array(positions), mf_best
+    return positions, mf_best
 
 
 # ---------------------------
@@ -231,41 +240,41 @@ def needle_cycle(
         num_of_layers = len(current.thickness)
 
         # 1) Аналитическая P-карта (по Тихонравову)
-        positions, mf_best = analytic_excitation_map(
-            current, q_in, q_sub, qH, qL, kH, kL, dM_in_H_layer, dM_in_L_layer,
-            wavelengths, targets, pol, theta_inc, d_eps, num_of_layers, n_wavelengths
-        )
+        # positions, mf_best = analytic_excitation_map(
+        #     current, q_in, q_sub, qH, qL, kH, kL, dM_in_H_layer, dM_in_L_layer,
+        #     wavelengths, targets, pol, theta_inc, d_eps, num_of_layers, n_wavelengths
+        # )
 
-        # Лучшая точка вставки — по максимуму выигрыша
-        idx = int(np.argmin(mf_best))
-        if not np.isfinite(mf_best[idx]) or (mf_before - mf_best[idx]) <= 0.0:
-            # нет предсказанного улучшения
-            break
+        # # Лучшая точка вставки — по максимуму выигрыша
+        # idx = int(np.argmin(mf_best))
+        # if not np.isfinite(mf_best[idx]) or (mf_before - mf_best[idx]) <= 0.0:
+        #     # нет предсказанного улучшения
+        #     break
 
-        pos = int(positions[idx])
+        # pos = int(positions[idx])
 
-        # 2) Реальная вставка слоя толщиной d_init и пересборка стека
-        th = current.thickness
+        # # 2) Реальная вставка слоя толщиной d_init и пересборка стека
+        # th = current.thickness
 
-        start_flag = current.start_flag
+        # start_flag = current.start_flag
 
-        if pos == -1:                      # перед первым слоем
-            if start_flag == "H":
-                start_flag = "L"
-            else:
-                start_flag = "H"
-            th_new = np.insert(th, 0, d_init)
-        elif pos == len(th):          # после последнего
-            th_new = np.append(th, d_init)
-        else:                              # середина слоя pos
-            d1 = 0.5 * th[pos]; d2 = th[pos] - d1
-            th_new = np.concatenate([th[:pos], [d1, d_init, d2], th[pos+1:]])
+        # if pos == -1:                      # перед первым слоем
+        #     if start_flag == "H":
+        #         start_flag = "L"
+        #     else:
+        #         start_flag = "H"
+        #     th_new = np.insert(th, 0, d_init)
+        # elif pos == len(th):          # после последнего
+        #     th_new = np.append(th, d_init)
+        # else:                              # середина слоя pos
+        #     d1 = 0.5 * th[pos]; d2 = th[pos] - d1
+        #     th_new = np.concatenate([th[:pos], [d1, d_init, d2], th[pos+1:]])
 
-        current = make_stack(start_flag, th_new, nH_values, nL_values, cos_theta_in_H_layers, cos_theta_in_L_layers,
-                             q_in, q_sub, qH, qL, wavelengths, n_wavelengths, calculate_prefix_and_suffix_for_needle=False)
+        # current = make_stack(start_flag, th_new, nH_values, nL_values, cos_theta_in_H_layers, cos_theta_in_L_layers,
+        #                      q_in, q_sub, qH, qL, wavelengths, n_wavelengths, calculate_prefix_and_suffix_for_needle=False)
 
-        new_merit = rms_merit(q_in, q_sub, wavelengths, targets, pol, theta_inc, current.r, current.t, current.R, current.T)
-        print("new merit function: "+str(new_merit))
+        # new_merit = rms_merit(q_in, q_sub, wavelengths, targets, pol, theta_inc, current.r, current.t, current.R, current.T)
+        # print("new merit function: "+str(new_merit))
 
         # 3) Локальная доводка толщин (необязательна, но полезна)
         current, mf_after = coordinate_descent_thicknesses(
