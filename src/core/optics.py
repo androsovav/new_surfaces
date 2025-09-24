@@ -8,24 +8,21 @@ Pol = Literal["s", "p", "u"]  # поляризация. u - неполяризо
 NType = Union[float, complex, Callable[[float, float], complex]]   # показатель преломления среды. Может быть действительным (float), комплексным (complex), и задаваться функцией длины волны
 
 @dataclass
-class Layer:
-    litera: Literal["H", "L"]   # тип материала (H или L)
-    d: float                # физ. толщина (м)
-    phi: np.ndarray         # фазовый набег (массив)
-    sphi: np.ndarray        # синус фи (массив)
-    cphi: np.ndarray        # косинус фи (массив)
-    M: np.ndarray           # матрица слоя (3D массив: [2, 2, n_wavelengths])
-
-@dataclass
 class Stack:
-    layers: np.ndarray
+    thickness: np.ndarray
+    start_flag: Literal["H", "L"]
     prefix: np.ndarray     # префиксное произведение (3D массив)
     suffix: np.ndarray     # суффиксное произведение (3D массив)
-    M: np.ndarray     # M всего стэка (3D массив)
+    M: np.ndarray       # M всего стэка (3D массив)
+    phi: np.ndarray         # фазовый набег слоев (массив)
+    sphi: np.ndarray        # синус фи слоев (массив)
+    cphi: np.ndarray        # косинус фи слоев (массив)
+    M_layers: np.ndarray       # M слоев, то есть массив матриц
     r: np.ndarray
     t: np.ndarray
     R: np.ndarray
     T: np.ndarray
+    q: np.ndarray
 
 def n_of(nspec: NType, A: float, wl: float) -> complex:
     """
@@ -50,17 +47,17 @@ def cos_theta_in_layer(n_layer: complex, n_incident: complex, theta_incident: fl
     return np.sqrt(1.0 - sin_tj**2)
 
 # В optics.py добавьте векторные версии функций
-def phi_parameter(n: np.ndarray, d: float, cos_theta: np.ndarray, wavelengths: np.ndarray) -> np.ndarray:
+def phi_parameter(n: np.ndarray, d: np.ndarray, cos_theta: np.ndarray, wavelengths: np.ndarray) -> np.ndarray:
     """Векторная версия phi_parameter"""
-    return 2.0 * np.pi * n * d * cos_theta / wavelengths
+    return (2.0 * np.pi * n * cos_theta / wavelengths) * d[:, None]
 
 def q_parameter(n: np.ndarray, cos_theta: np.ndarray, pol: Literal["s","p"]) -> np.ndarray:
     """Векторная версия q_parameter"""
     return n * cos_theta if pol == "s" else (cos_theta / n)
 
-def make_M(sphi: np.ndarray, cphi: np.ndarray, q: np.ndarray, n: int) -> np.ndarray:
+def make_M(sphi: np.ndarray, cphi: np.ndarray, q: np.ndarray, num_of_layers: int, num_of_wavelengths: int) -> np.ndarray:
     """Векторная версия make_M"""
-    M = np.empty((2, 2, n), dtype=complex)
+    M = np.empty((2, 2, num_of_layers, num_of_wavelengths), dtype=complex)
     M[0, 0] = cphi
     M[0, 1] = 1j * sphi / q
     M[1, 0] = 1j * q * sphi

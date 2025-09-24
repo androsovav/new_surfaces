@@ -142,12 +142,14 @@ if __name__ == "__main__":
     qL = q_parameter(nL_values, cos_theta_in_L_layers, pol)
     kH = 2.0 * np.pi * nH_values * cos_theta_in_H_layers / wavelengths
     kL = 2.0 * np.pi * nL_values * cos_theta_in_L_layers / wavelengths
+    thickness = np.array([dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL])
+    start_flag="H"
 
     # неизменны для данной задачи
     q_in = q_parameter(n_inc_values, np.cos(theta_inc), pol)
     q_sub = q_parameter(n_sub_values, cos_theta_in_layer(n_sub_values, n_inc_values, theta_inc), pol)
-    stack0 = make_stack(start_flag="H",
-                    thickness = np.array([dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL]),
+    stack0 = make_stack(start_flag=start_flag,
+                    thickness = thickness,
                     nH_values=nH_values,
                     nL_values=nL_values,
                     cos_theta_in_H_layers=cos_theta_in_H_layers,
@@ -159,6 +161,7 @@ if __name__ == "__main__":
                     wavelengths=wavelengths,
                     n_wavelengths=n_wavelengths,
                     calculate_prefix_and_suffix_for_needle=True)
+
     targets = targets = combine_targets(target_bandpass(
         wavelengths,
         passbands=[(1040e-9, 1060e-9)],  # диапазон прозрачности

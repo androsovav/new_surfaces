@@ -2,7 +2,7 @@
 from __future__ import annotations
 import numpy as np
 from typing import Dict, Any, List, Tuple
-from ..core.optics import Stack, Layer
+from ..core.optics import Stack
 from ..core.metrics import total_optical_thickness
 from .needle import needle_cycle
 from ..design.design import random_start_stack

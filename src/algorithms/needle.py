@@ -5,7 +5,7 @@ import time
 from typing import List, Tuple, Literal, Dict, Any
 
 from ..core.optics import (
-    Layer, Stack, phi_parameter, make_M, rt_amplitudes, RT_coeffs
+    Stack, phi_parameter, make_M, rt_amplitudes, RT_coeffs
 )
 from ..core.merit import rms_merit
 from ..algorithms.optimizers import coordinate_descent_thicknesses
@@ -82,6 +82,7 @@ def analytic_excitation_map(
     pol: Literal["s","p"],
     theta_inc: float,
     d_eps: float,
+    num_of_layers: int,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Для каждой потенциальной позиции (перед первым, середины всех слоёв, после последнего)
@@ -92,8 +93,7 @@ def analytic_excitation_map(
       dmf:       массив ожидаемых уменьшений MF (чем больше — тем лучше)
     Теория и физическая интерпретация метода «игл» — A.V. Tikhonravov et al. (1996/1997). :contentReference[oaicite:6]{index=6}
     """
-    N = len(stack.layers)
-    positions = [-1] + list(range(N)) + [N]
+    positions = [-1] + list(range(num_of_layers)) + [num_of_layers]
 
     mf_best = np.full(len(positions), -np.inf, dtype=float)
 
@@ -106,11 +106,17 @@ def analytic_excitation_map(
     for k, pos in enumerate(positions):
         # Выбор комплементарной «иглы» (H↔L) в этой позиции
         if pos == -1:
-            ins = "L" if stack.layers[0].litera == "H" else "H"
-        elif pos == N:
-            ins = "L" if stack.layers[-1].litera == "H" else "H"
+            ins = "L" if stack.start_flag == "H" else "H"
+        elif pos == num_of_layers:
+            if num_of_layers % 2 == 1:
+                ins = "L" if stack.start_flag == "H" else "H"
+            else:
+                ins = "H" if stack.start_flag == "H" else "L"
         else:
-            ins = "L" if stack.layers[pos].litera == "H" else "H"
+            if pos % 2 == 0:
+                ins = "L" if stack.start_flag == "H" else "H"
+            else:
+                ins = "H" if stack.start_flag == "H" else "L"
 
         # Материальные параметры «иглы»
         if ins == "H":
@@ -124,11 +130,11 @@ def analytic_excitation_map(
         # Префикс и суффикс (K,2,2) для выбранной позиции
         if pos == -1:
             pref, suff = I_K, M_tot
-        elif pos == N:
+        elif pos == num_of_layers:
             pref, suff = M_tot, I_K
         else:
-            pref = np.transpose(stack.prefix[pos], (2,0,1))
-            suff = np.transpose(stack.suffix[pos], (2,0,1))
+            pref = np.transpose(stack.prefix[:, :, pos, :], (2,0,1))
+            suff = np.transpose(stack.suffix[:, :, pos, :], (2,0,1))
 
         # Полная вариация матрицы: dM_tot = pref ⋅ dM_layer ⋅ suff  (K,2,2)
         dM_tot = np.einsum("kij,kjl,klm->kim", pref, dM_layer, suff)
@@ -198,11 +204,12 @@ def needle_cycle(
 
     for step in range(max_steps):
         mf_before = rms_merit(q_in, q_sub, wavelengths, targets, pol, theta_inc, current.r, current.t, current.R, current.T)
+        num_of_layers = len(current.thickness)
 
         # 1) Аналитическая P-карта (по Тихонравову)
         positions, mf_best = analytic_excitation_map(
             current, q_in, q_sub, qH, qL, kH, kL,
-            wavelengths, targets, pol, theta_inc, d_eps
+            wavelengths, targets, pol, theta_inc, d_eps, num_of_layers
         )
 
         print("positions: "+str(positions))
@@ -217,8 +224,9 @@ def needle_cycle(
         pos = int(positions[idx])
 
         # 2) Реальная вставка слоя толщиной d_init и пересборка стека
-        th = np.array([L.d for L in current.layers], dtype=float)
-        start_flag = current.layers[0].litera       
+        th = current.thickness
+
+        start_flag = current.start_flag
 
         if pos == -1:                      # перед первым слоем
             if start_flag == "H":
@@ -257,16 +265,14 @@ def needle_cycle(
             d_min=d_min,
             d_max=d_max,
         )
-
-        current = add_prefix_and_suffix_to_stack(current, wavelengths, nH_values, nL_values,
-                                                 cos_theta_in_H_layers, cos_theta_in_L_layers, qH, qL)
+        current = add_prefix_and_suffix_to_stack(current, n_wavelengths)
 
         history.append({"step": step, "MF": mf_after})
 
         # 4) Критерии останова
         if mf_before - mf_after < min_rel_improv * max(1.0, mf_before):
             break
-        if len(current.layers) > max_layers:
+        if len(current.thickness) > max_layers:
             break
         if total_optical_thickness(current, wl_ref_for_tot, nH_values, nL_values, wavelengths) > max_tot_nmopt:
             break

@@ -32,8 +32,8 @@ def coordinate_descent_thicknesses(
     Координатный спуск по толщинам с постепенным уменьшением шага.
     """
 
-    start_flag = stack.layers[0].litera
-    thickness = np.array([L.d for L in stack.layers], dtype=float)
+    start_flag = stack.start_flag
+    thickness = stack.thickness
 
     # функция для пересборки стека
     def rebuild(th):

@@ -1,9 +1,7 @@
 import numpy as np
 
-a = np.array([1, 2, 3, 4])
-print("Исходный массив:", a)
+phi = np.array([[1+1j, 2+2j, 3+3j],
+                [4+4j, 5+5j, 6+6j]])
 
-# Вставим 99 на позицию с индексом 2
-b = np.insert(a, len(a), 99)
-
-print("Новый массив:", b)
+sphi = np.sin(phi)
+print(sphi)

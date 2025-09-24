@@ -19,7 +19,12 @@ def total_optical_thickness(
     nL = np.real(nL_values[idx])
 
     total = 0.0
-    for L in stack.layers:
-        n = nH if L.litera == "H" else nL
-        total += n * L.d
+    if stack.start_flag == "H":
+        for i in range(len(stack.thickness)):
+            n = nH if i % 2 == 0 else nL
+            total += n * stack.thickness[i]
+    else:
+        for i in range(len(stack.thickness)):
+            n = nL if i % 2 == 0 else nH
+            total += n * stack.thickness[i]
     return float(total)

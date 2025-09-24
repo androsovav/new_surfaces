@@ -2,99 +2,145 @@
 from __future__ import annotations
 from typing import List, Callable, Literal
 import numpy as np
-from ..core.optics import Layer, Stack, phi_parameter, make_M, rt_amplitudes, RT_coeffs
+import time
+from ..core.optics import Stack, phi_parameter, make_M, rt_amplitudes, RT_coeffs
 
 def make_stack(start_flag: Literal["H", "L"], thickness: np.ndarray, nH_values: np.ndarray, nL_values: np.ndarray, 
                cos_theta_in_H_layers: np.ndarray, cos_theta_in_L_layers: np.ndarray,
-                q_in: np.ndarray, q_sub: np.ndarray, qH: complex,
-                qL: complex, wavelengths: np.ndarray, n_wavelengths: int, calculate_prefix_and_suffix_for_needle: bool) -> Stack:
+                q_in: np.ndarray, q_sub: np.ndarray, qH: np.ndarray,
+                qL: np.ndarray, wavelengths: np.ndarray, n_wavelengths: int, calculate_prefix_and_suffix_for_needle: bool) -> Stack:
     
+    t0 = time.perf_counter()
+
     num_of_layers = len(thickness)
     
     # Инициализация массивов для всех длин волн
-    layers = np.empty(num_of_layers, dtype=object)
-    Hlayer = start_flag == "H"
+    phi = np.empty((num_of_layers, n_wavelengths), dtype=np.complex128)
+    sphi = np.empty((num_of_layers, n_wavelengths), dtype=np.complex128)
+    cphi = np.empty((num_of_layers, n_wavelengths), dtype=np.complex128)
+    q = np.empty((num_of_layers, n_wavelengths), dtype=np.complex128)
 
-    for i in range(num_of_layers):
-        if Hlayer:
-            Hlayer = False
-            litera = "H"
-            # Вычисляем phi, sphi, cphi для всех длин волн
-            phi = phi_parameter(nH_values, thickness[i], cos_theta_in_H_layers, wavelengths)
-            sphi = np.sin(phi)
-            cphi = np.cos(phi)
-            # Вычисляем матрицы M для всех длин волн
-            M = make_M(sphi, cphi, qH, n_wavelengths)
-            
-            layers[i] = Layer(litera=litera, d=thickness[i], phi=phi, sphi=sphi, cphi=cphi, M=M)
-        else:
-            Hlayer = True
-            litera = "L"
-            # Вычисляем phi, sphi, cphi для всех длин волн
-            phi = phi_parameter(nL_values, thickness[i], cos_theta_in_L_layers, wavelengths)
-            sphi = np.sin(phi)
-            cphi = np.cos(phi)
-            # Вычисляем матрицы M для всех длин волн
-            M = make_M(sphi, cphi, qL, n_wavelengths)
-            
-            layers[i] = Layer(litera=litera, d=thickness[i], phi=phi, sphi=sphi, cphi=cphi, M=M)            
+    if start_flag == "H":
+        phi[0::2] = phi_parameter(nH_values, thickness[0::2], cos_theta_in_H_layers, wavelengths)
+        phi[1::2] = phi_parameter(nL_values, thickness[1::2], cos_theta_in_L_layers, wavelengths)
+        q[0::2] = qH
+        q[1::2] = qL
+    else:
+        phi[0::2] = phi_parameter(nL_values, thickness[0::2], cos_theta_in_L_layers, wavelengths)
+        phi[1::2] = phi_parameter(nH_values, thickness[1::2], cos_theta_in_H_layers, wavelengths)
+        q[0::2] = qL
+        q[1::2] = qH
     
-    # Инициализация префиксных и суффиксных произведений
-    prefix = np.empty((num_of_layers, 2, 2, n_wavelengths), dtype=complex)
-    suffix = np.empty((num_of_layers, 2, 2, n_wavelengths), dtype=complex)
+    sphi = np.sin(phi)
+    cphi = np.cos(phi)
     
+    M_layers = make_M(sphi, cphi, q, num_of_layers, n_wavelengths)
+
     if calculate_prefix_and_suffix_for_needle:
-        left = np.tile(np.eye(2, dtype=complex)[:, :, np.newaxis], (1, 1, n_wavelengths))
-        right = np.tile(np.eye(2, dtype=complex)[:, :, np.newaxis], (1, 1, n_wavelengths))
+        prefix = np.empty((2,2,num_of_layers,n_wavelengths), dtype=complex)
+        suffix = np.empty((2,2,num_of_layers,n_wavelengths), dtype=complex)
+        phi_half = 0.5*phi
+        sphi_half = np.sin(phi_half)
+        cphi_half = np.cos(phi_half)
+        M_half = make_M(sphi_half, cphi_half, q, num_of_layers, n_wavelengths)
+        # единичная матрица для каждой длины волны
         
+
+        # единичная матрица для каждой длины волны
+        left  = np.tile(np.eye(2, dtype=complex)[:,:,None], (1,1,n_wavelengths))   # (2,2,n_wavelength)
+        right = np.tile(np.eye(2, dtype=complex)[:,:,None], (1,1,n_wavelengths))   # (2,2,n_wavelength)
+
+        # считаем prefix
         for i in range(num_of_layers):
-            # Обработка префикса
-            layer = layers[i]
-            half_d = 0.5 * layer.d
+            prefix[:,:,i,:] = np.einsum('ijk,jlk->ilk', left, M_half[:,:,i,:])
+            left = np.einsum('ijk,jlk->ilk', left, M_layers[:,:,i,:])
+
+        # считаем suffix
+        for i in range(num_of_layers-1, -1, -1):
+            suffix[:,:,i,:] = np.einsum('ijk,jlk->ilk', M_half[:,:,i,:], right)
+            right = np.einsum('ijk,jlk->ilk', M_layers[:,:,i,:], right)
+        
+        M = left
+    # Hlayer = start_flag == "H"
+    # for i in range(num_of_layers):
+    #     if Hlayer:
+    #         Hlayer = False
+    #         litera = "H"
+    #         # Вычисляем phi, sphi, cphi для всех длин волн
+    #         phi = phi_parameter(nH_values, thickness[i], cos_theta_in_H_layers, wavelengths)
+    #         sphi = np.sin(phi)
+    #         cphi = np.cos(phi)
+    #         # Вычисляем матрицы M для всех длин волн
+    #         M = make_M(sphi, cphi, qH, n_wavelengths)
             
-            # Пересчитываем параметры для половины толщины
-            if layer.litera == "H":
-                phi_half = phi_parameter(nH_values, half_d, cos_theta_in_H_layers, wavelengths)
-                sphi_half = np.sin(phi_half)
-                cphi_half = np.cos(phi_half)
-                # Создаем матрицу для половины слоя
-                M_half = make_M(sphi_half, cphi_half, qH, n_wavelengths)
-            else:
-                phi_half = phi_parameter(nL_values, half_d, cos_theta_in_L_layers, wavelengths)
-                sphi_half = np.sin(phi_half)
-                cphi_half = np.cos(phi_half)            
-                # Создаем матрицу для половины слоя
-                M_half = make_M(sphi_half, cphi_half, qL, n_wavelengths)        
+    #         layers[i] = Layer(litera=litera, d=thickness[i], phi=phi, sphi=sphi, cphi=cphi, M=M)
+    #     else:
+    #         Hlayer = True
+    #         litera = "L"
+    #         # Вычисляем phi, sphi, cphi для всех длин волн
+    #         phi = phi_parameter(nL_values, thickness[i], cos_theta_in_L_layers, wavelengths)
+    #         sphi = np.sin(phi)
+    #         cphi = np.cos(phi)
+    #         # Вычисляем матрицы M для всех длин волн
+    #         M = make_M(sphi, cphi, qL, n_wavelengths)
+            
+    #         layers[i] = Layer(litera=litera, d=thickness[i], phi=phi, sphi=sphi, cphi=cphi, M=M)            
+    
+    # if calculate_prefix_and_suffix_for_needle:
+    #     # Инициализация префиксных и суффиксных произведений
+    #     prefix = np.empty((num_of_layers, 2, 2, n_wavelengths), dtype=complex)
+    #     suffix = np.empty((num_of_layers, 2, 2, n_wavelengths), dtype=complex)
+    #     left = np.tile(np.eye(2, dtype=complex)[:, :, np.newaxis], (1, 1, n_wavelengths))
+    #     right = np.tile(np.eye(2, dtype=complex)[:, :, np.newaxis], (1, 1, n_wavelengths))
+        
+    #     for i in range(num_of_layers):
+    #         # Обработка префикса
+    #         layer = layers[i]
+    #         half_d = 0.5 * layer.d
+            
+    #         # Пересчитываем параметры для половины толщины
+    #         if layer.litera == "H":
+    #             phi_half = phi_parameter(nH_values, half_d, cos_theta_in_H_layers, wavelengths)
+    #             sphi_half = np.sin(phi_half)
+    #             cphi_half = np.cos(phi_half)
+    #             # Создаем матрицу для половины слоя
+    #             M_half = make_M(sphi_half, cphi_half, qH, n_wavelengths)
+    #         else:
+    #             phi_half = phi_parameter(nL_values, half_d, cos_theta_in_L_layers, wavelengths)
+    #             sphi_half = np.sin(phi_half)
+    #             cphi_half = np.cos(phi_half)            
+    #             # Создаем матрицу для половины слоя
+    #             M_half = make_M(sphi_half, cphi_half, qL, n_wavelengths)        
 
             
-            # Обновляем префикс и left
-            prefix[i] = np.einsum('ijk,jlk->ilk', left, M_half)
-            left = np.einsum('ijk,jlk->ilk', left, layer.M)
+    #         # Обновляем префикс и left
+    #         prefix[i] = np.einsum('ijk,jlk->ilk', left, M_half)
+    #         left = np.einsum('ijk,jlk->ilk', left, layer.M)
             
-            # Обработка суффикса (аналогично для обратного порядка)
-            layer_rev = layers[-(i+1)]
-            half_d_rev = 0.5 * layer_rev.d
+    #         # Обработка суффикса (аналогично для обратного порядка)
+    #         layer_rev = layers[-(i+1)]
+    #         half_d_rev = 0.5 * layer_rev.d
             
-            if layer_rev.litera == "H":
-                phi_half_rev = phi_parameter(nH_values, half_d_rev, cos_theta_in_H_layers, wavelengths)
-                sphi_half_rev = np.sin(phi_half_rev)
-                cphi_half_rev = np.cos(phi_half_rev)     
-                M_half_rev = make_M(sphi_half_rev, cphi_half_rev, qH, n_wavelengths)
-            else:
-                phi_half_rev = phi_parameter(nL_values, half_d_rev, cos_theta_in_L_layers, wavelengths)
-                sphi_half_rev = np.sin(phi_half_rev)
-                cphi_half_rev = np.cos(phi_half_rev)     
-                M_half_rev = make_M(sphi_half_rev, cphi_half_rev, qL, n_wavelengths)
+    #         if layer_rev.litera == "H":
+    #             phi_half_rev = phi_parameter(nH_values, half_d_rev, cos_theta_in_H_layers, wavelengths)
+    #             sphi_half_rev = np.sin(phi_half_rev)
+    #             cphi_half_rev = np.cos(phi_half_rev)     
+    #             M_half_rev = make_M(sphi_half_rev, cphi_half_rev, qH, n_wavelengths)
+    #         else:
+    #             phi_half_rev = phi_parameter(nL_values, half_d_rev, cos_theta_in_L_layers, wavelengths)
+    #             sphi_half_rev = np.sin(phi_half_rev)
+    #             cphi_half_rev = np.cos(phi_half_rev)     
+    #             M_half_rev = make_M(sphi_half_rev, cphi_half_rev, qL, n_wavelengths)
             
-            suffix[-(i+1)] = np.einsum('ijk,jlk->ilk', M_half_rev, right)
-            right = np.einsum('ijk,jlk->ilk', layer_rev.M, right)
+    #         suffix[-(i+1)] = np.einsum('ijk,jlk->ilk', M_half_rev, right)
+    #         right = np.einsum('ijk,jlk->ilk', layer_rev.M, right)
 
-        M=left
+    #     M=left
 
     else:
-        M = np.tile(np.eye(2, dtype=complex)[:, :, np.newaxis], (1, 1, n_wavelengths))
+        M = np.tile(np.eye(2, dtype=complex)[:,:,None], (1,1,n_wavelengths))
         for i in range(num_of_layers):
-            M = np.einsum('ijk,jlk->ilk', M, layers[i].M)
+            M = np.einsum('ijk,jlk->ilk', M, M_layers[:,:,i,:])
         prefix = []
         suffix = []
 
@@ -102,63 +148,39 @@ def make_stack(start_flag: Literal["H", "L"], thickness: np.ndarray, nH_values: 
     r, t = rt_amplitudes(M, q_in, q_sub)
     R, T = RT_coeffs(r, t, q_in, q_sub)
     
-    return Stack(layers=layers, prefix=prefix, suffix=suffix, M=M, r=r, t=t, R=R, T=T)
+    return Stack(prefix=prefix, suffix=suffix, M=M, r=r, t=t, R=R, T=T, q=q,
+                 phi=phi, sphi=sphi, cphi=cphi, M_layers=M_layers, thickness=thickness,
+                 start_flag=start_flag)
 
-def add_prefix_and_suffix_to_stack(stack: Stack, wavelengths: np.ndarray, nH_values: np.ndarray,
-                                nL_values: np.ndarray, cos_theta_in_H_layers: np.ndarray,
-                                cos_theta_in_L_layers: np.ndarray, qH: complex, qL: complex):
-    num_of_layers = len(stack.layers)
-    n_wavelengths = len(wavelengths)
-    prefix = np.empty((num_of_layers, 2, 2, n_wavelengths), dtype=complex)
-    suffix = np.empty((num_of_layers, 2, 2, n_wavelengths), dtype=complex)
-
-    left = np.tile(np.eye(2, dtype=complex)[:, :, np.newaxis], (1, 1, n_wavelengths))
-    right = np.tile(np.eye(2, dtype=complex)[:, :, np.newaxis], (1, 1, n_wavelengths))
+def add_prefix_and_suffix_to_stack(stack: Stack, n_wavelengths: int):
+    num_of_layers = len(stack.thickness)
+    prefix = np.empty((2,2,num_of_layers,n_wavelengths), dtype=complex)
+    suffix = np.empty((2,2,num_of_layers,n_wavelengths), dtype=complex)
+    phi_half = 0.5*stack.phi
+    sphi_half = np.sin(phi_half)
+    cphi_half = np.cos(phi_half)
+    M_layers = stack.M_layers
+    M_half = make_M(sphi_half, cphi_half, stack.q, num_of_layers, n_wavelengths)
+    # единичная матрица для каждой длины волны
     
+
+    # единичная матрица для каждой длины волны
+    left  = np.tile(np.eye(2, dtype=complex)[:,:,None], (1,1,n_wavelengths))   # (2,2,n_wavelength)
+    right = np.tile(np.eye(2, dtype=complex)[:,:,None], (1,1,n_wavelengths))   # (2,2,n_wavelength)
+
+    # считаем prefix
     for i in range(num_of_layers):
-        # Обработка префикса
-        layer = stack.layers[i]
-        half_d = 0.5 * layer.d
-        
-        # Пересчитываем параметры для половины толщины
-        if layer.litera == "H":
-            phi_half = phi_parameter(nH_values, half_d, cos_theta_in_H_layers, wavelengths)
-            sphi_half = np.sin(phi_half)
-            cphi_half = np.cos(phi_half)
-            # Создаем матрицу для половины слоя
-            M_half = make_M(sphi_half, cphi_half, qH, n_wavelengths)
-        else:
-            phi_half = phi_parameter(nL_values, half_d, cos_theta_in_L_layers, wavelengths)
-            sphi_half = np.sin(phi_half)
-            cphi_half = np.cos(phi_half)            
-            # Создаем матрицу для половины слоя
-            M_half = make_M(sphi_half, cphi_half, qL, n_wavelengths)        
+        prefix[:,:,i,:] = np.einsum('ijk,jlk->ilk', left, M_half[:,:,i,:])
+        left = np.einsum('ijk,jlk->ilk', left, M_layers[:,:,i,:])
 
-        
-        # Обновляем префикс и left
-        prefix[i] = np.einsum('ijk,jlk->ilk', left, M_half)
-        left = np.einsum('ijk,jlk->ilk', left, layer.M)
-        
-        # Обработка суффикса (аналогично для обратного порядка)
-        layer_rev = stack.layers[-(i+1)]
-        half_d_rev = 0.5 * layer_rev.d
-        
-        if layer_rev.litera == "H":
-            phi_half_rev = phi_parameter(nH_values, half_d_rev, cos_theta_in_H_layers, wavelengths)
-            sphi_half_rev = np.sin(phi_half_rev)
-            cphi_half_rev = np.cos(phi_half_rev)     
-            M_half_rev = make_M(sphi_half_rev, cphi_half_rev, qH, n_wavelengths)
-        else:
-            phi_half_rev = phi_parameter(nL_values, half_d_rev, cos_theta_in_L_layers, wavelengths)
-            sphi_half_rev = np.sin(phi_half_rev)
-            cphi_half_rev = np.cos(phi_half_rev)     
-            M_half_rev = make_M(sphi_half_rev, cphi_half_rev, qL, n_wavelengths)
-        
-        suffix[-(i+1)] = np.einsum('ijk,jlk->ilk', M_half_rev, right)
-        right = np.einsum('ijk,jlk->ilk', layer_rev.M, right)
+    # считаем suffix
+    for i in range(num_of_layers-1, -1, -1):
+        suffix[:,:,i,:] = np.einsum('ijk,jlk->ilk', M_half[:,:,i,:], right)
+        right = np.einsum('ijk,jlk->ilk', M_layers[:,:,i,:], right)
     
-    res = Stack(stack.layers, prefix, suffix, stack.M, stack.r, stack.t, stack.R, stack.T)
-    return res
+    return Stack(prefix=prefix, suffix=suffix, M=stack.M, r=stack.r, t=stack.t, R=stack.R, T=stack.T,
+                 phi=stack.phi, sphi=stack.sphi, cphi=stack.cphi, M_layers=M_layers, thickness=stack.thickness,
+                 start_flag=stack.start_flag, q = stack.q)
 
 def with_dispersion(n_func_H: Callable[[float], complex], n_func_L: Callable[[float], complex],
                     dH: float, dL: float, periods: int, n_inc: float, n_sub: float) -> Stack:
