@@ -86,6 +86,19 @@ def RT_coeffs(r: np.ndarray, t: np.ndarray, q_in: np.ndarray, q_sub: np.ndarray)
     T = (np.real(q_sub) / np.real(q_in)) * np.abs(t)**2
     return R, T
 
+def dM_layer_dd_at_zero(q: np.ndarray, k: np.ndarray, wavelengths: np.ndarray) -> np.ndarray:
+    """
+    ∂M_layer/∂d |_{d=0} для всех λ: форма (2,2,K).
+    Здесь k = 2π n cosθ / λ; при d→0: cosφ≈1, sinφ≈φ=k d → dM/dd:
+      d/d(d) [ [cosφ, i sinφ / q], [i q sinφ, cosφ] ]_{d=0}
+      = [ [0, i k / q], [i q k, 0] ].
+    """
+    K = len(wavelengths)
+    dM = np.zeros((2, 2, K), dtype=complex)
+    dM[0, 1, :] = 1j * k / q
+    dM[1, 0, :] = 1j * q * k
+    return dM
+
 
 def RT_single(stack: Stack, q_in, q_sub, wl: float, theta_inc: float, pol: Literal["s","p"]) -> Tuple[float, float]:
     r, t = rt_amplitudes(stack, q_in, q_sub, wl, theta_inc, pol)

@@ -31,8 +31,6 @@ def coordinate_descent_thicknesses(
     """
     Координатный спуск по толщинам с постепенным уменьшением шага.
     """
-
-    start_flag = stack.start_flag
     thickness = np.copy(stack.thickness)
     num_of_layers = len(stack.thickness)
     prefix = np.empty((2,2,num_of_layers,n_wavelengths), dtype=complex)
@@ -52,10 +50,13 @@ def coordinate_descent_thicknesses(
                    stack.r, stack.t, stack.R, stack.T)
     step = step_rel
 
-    for _ in range(iters):
+    while True:
         improved = False
-        for sgn in (+1, -1):
-            phi_changed = phi * (1.0 + sgn * step)
+        for sgn in (True, False):
+            if sgn:
+                phi_changed = phi * step
+            else:
+                phi_changed = phi / step
             sphi_changed = np.sin(phi_changed)
             cphi_changed = np.cos(phi_changed)
             M_changed = make_M(sphi_changed, cphi_changed, stack.q, num_of_layers, n_wavelengths)
@@ -93,7 +94,7 @@ def coordinate_descent_thicknesses(
                 improved = True
                 break
         if not improved:
-            step *= 0.5
+            step *= 0.9
             if step < min_step_rel:
                 break
 

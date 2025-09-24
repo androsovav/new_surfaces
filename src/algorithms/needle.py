@@ -50,8 +50,8 @@ def _dr_dt_from_dM_vec(
       B = (m11 + m12 q_sub) q_in + (m21 + m22 q_sub)
     """
     # Разворачиваем элементы по K
-    m11 = M[:, 0, 0]; m12 = M[:, 0, 1]
-    m21 = M[:, 1, 0]; m22 = M[:, 1, 1]
+    m11 = M[0, 0, :]; m12 = M[0, 1, :]
+    m21 = M[1, 0, :]; m22 = M[1, 1, :]
 
     dm11 = dM[:, 0, 0]; dm12 = dM[:, 0, 1]
     dm21 = dM[:, 1, 0]; dm22 = dM[:, 1, 1]
@@ -77,12 +77,15 @@ def analytic_excitation_map(
     q_in: np.ndarray, q_sub: np.ndarray,
     qH: np.ndarray, qL: np.ndarray,
     kH: np.ndarray, kL: np.ndarray,
+    dM_in_H_layer: np.ndarray,
+    dM_in_L_layer: np.ndarray,
     wavelengths: np.ndarray,
     targets: dict,
     pol: Literal["s","p"],
     theta_inc: float,
     d_eps: float,
     num_of_layers: int,
+    n_wavelengths: int
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Для каждой потенциальной позиции (перед первым, середины всех слоёв, после последнего)
@@ -93,17 +96,37 @@ def analytic_excitation_map(
       dmf:       массив ожидаемых уменьшений MF (чем больше — тем лучше)
     Теория и физическая интерпретация метода «игл» — A.V. Tikhonravov et al. (1996/1997). :contentReference[oaicite:6]{index=6}
     """
-    positions = [-1] + list(range(num_of_layers)) + [num_of_layers]
+    num_of_layers = len(stack.thickness)
+    positions = np.array(range(num_of_layers))
 
     mf_best = np.full(len(positions), -np.inf, dtype=float)
+    I_K = np.tile(np.eye(2, dtype=complex)[:, :, None], (1, 1, len(wavelengths)))
 
-    # Базовый M(λ) и удобные формы (K,2,2)
-    M_tot = np.transpose(stack.M, (2,0,1))           # (K,2,2)
-    I_K = np.tile(np.eye(2, dtype=complex)[None, :, :], (len(wavelengths), 1, 1))
+    M_total = stack.M
 
     alpha = np.real(q_sub) / np.real(q_in)           # для T = alpha * |t|^2
 
-    for k, pos in enumerate(positions):
+    dM = np.empty((2, 2, num_of_layers, n_wavelengths), dtype=np.ndarray)
+    if stack.start_flag == "H":
+        dM[:, :, 0::2, :] = dM_in_H_layer[:, :, None, :]
+        dM[:, :, 1::2, :] = dM_in_L_layer[:, :, None, :]
+    else:
+        dM[:, :, 0::2, :] = dM_in_L_layer[:, :, None, :]
+        dM[:, :, 1::2, :] = dM_in_H_layer[:, :, None, :]
+
+    dM_total_changed = np.einsum(
+        'abnw, bcnw, cdnw -> adnw',
+        stack.prefix,
+        dM,
+        stack.suffix
+    )
+
+    _dr_dt_from_dM_vec()
+
+    print("//")
+    print(np.shape(dM_total_changed))
+
+    for pos in positions:
         # Выбор комплементарной «иглы» (H↔L) в этой позиции
         if pos == -1:
             ins = "L" if stack.start_flag == "H" else "H"
@@ -118,29 +141,27 @@ def analytic_excitation_map(
             else:
                 ins = "H" if stack.start_flag == "H" else "L"
 
-        # Материальные параметры «иглы»
-        if ins == "H":
-            q_ins, k_ins = qH, kH
-        else:
-            q_ins, k_ins = qL, kL
+        print(ins)
 
-        # ∂M_иглы/∂d |_{0} для всех λ: (2,2,K) → (K,2,2)
-        dM_layer = np.transpose(_dM_layer_dd_at_zero(q_ins, k_ins, wavelengths), (2,0,1))
+        if ins == "H":
+            dM_layer = dM_in_H_layer
+        else:
+            dM_layer = dM_in_L_layer
 
         # Префикс и суффикс (K,2,2) для выбранной позиции
         if pos == -1:
-            pref, suff = I_K, M_tot
+            pref, suff = I_K, M_total
         elif pos == num_of_layers:
-            pref, suff = M_tot, I_K
+            pref, suff = M_total, I_K
         else:
-            pref = np.transpose(stack.prefix[:, :, pos, :], (2,0,1))
-            suff = np.transpose(stack.suffix[:, :, pos, :], (2,0,1))
+            pref = stack.prefix[:, :, pos, :]
+            suff = stack.suffix[:, :, pos, :]
 
         # Полная вариация матрицы: dM_tot = pref ⋅ dM_layer ⋅ suff  (K,2,2)
         dM_tot = np.einsum("kij,kjl,klm->kim", pref, dM_layer, suff)
 
         # Производные амплитуд: dr, dt (вектор по λ)
-        dr, dt = _dr_dt_from_dM_vec(M_tot, q_in, q_sub, dM_tot)
+        dr, dt = _dr_dt_from_dM_vec(M_total, q_in, q_sub, dM_tot)
 
         # Линейные поправки на толщину e
         r_new = stack.r + d_eps * dr
@@ -153,6 +174,7 @@ def analytic_excitation_map(
 
         mf_best[k] = MF_new
 
+    quit()
     return np.array(positions), mf_best
 
 
@@ -174,6 +196,8 @@ def needle_cycle(
     qL: np.ndarray,
     kH: np.ndarray,
     kL: np.ndarray,
+    dM_in_H_layer: np.ndarray,
+    dM_in_L_layer: np.ndarray,
     pol: Literal["s","p"],
     theta_inc: float,
     cos_theta_in_H_layers: np.ndarray,
@@ -208,12 +232,9 @@ def needle_cycle(
 
         # 1) Аналитическая P-карта (по Тихонравову)
         positions, mf_best = analytic_excitation_map(
-            current, q_in, q_sub, qH, qL, kH, kL,
-            wavelengths, targets, pol, theta_inc, d_eps, num_of_layers
+            current, q_in, q_sub, qH, qL, kH, kL, dM_in_H_layer, dM_in_L_layer,
+            wavelengths, targets, pol, theta_inc, d_eps, num_of_layers, n_wavelengths
         )
-
-        print("positions: "+str(positions))
-        print("mf_best: "+str(mf_best))
 
         # Лучшая точка вставки — по максимуму выигрыша
         idx = int(np.argmin(mf_best))

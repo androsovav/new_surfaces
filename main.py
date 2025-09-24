@@ -1,7 +1,7 @@
 # main.py
 import numpy as np
 import time
-from src.core.optics import n_of, n_cauchy, q_parameter, cos_theta_in_layer
+from src.core.optics import n_of, n_cauchy, q_parameter, cos_theta_in_layer, dM_layer_dd_at_zero
 from src.core.merit import rms_merit
 from src.design.design import make_stack
 from src.design.targets import target_AR, combine_targets, target_bandpass
@@ -57,7 +57,9 @@ if __name__ == "__main__":
     qL = q_parameter(nL_values, cos_theta_in_L_layers, pol)
     kH = 2.0 * np.pi * nH_values * cos_theta_in_H_layers / wavelengths
     kL = 2.0 * np.pi * nL_values * cos_theta_in_L_layers / wavelengths
-    thickness = np.array([dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL])
+    dM_in_H_layer = dM_layer_dd_at_zero(qH, kH, wavelengths)
+    dM_in_L_layer = dM_layer_dd_at_zero(qL, kL, wavelengths)
+    thickness = np.array([dH, dL, dH, dL, dH, dL, dH, dL])
     start_flag="H"
 
     # неизменны для данной задачи
@@ -104,15 +106,17 @@ if __name__ == "__main__":
         qL=qL,
         kH=kH,
         kL=kL,
-        d_init=1e-9,
-        d_eps=1e-10,
-        coord_step_rel=0.25,
-        coord_min_step_rel=0.001,
-        coord_iters=50,
+        dM_in_H_layer=dM_in_H_layer,
+        dM_in_L_layer=dM_in_L_layer,
+        d_init=1e-10,
+        d_eps=1e-11,
+        coord_step_rel=3.0,
+        coord_min_step_rel=1.01,
+        coord_iters=1000,
         d_min=0.5e-9,
-        max_steps=20,
+        max_steps=100,
         min_rel_improv=1e-4,
-        max_layers=200,
+        max_layers=50,
         max_tot_nmopt=1e9,
         wl_ref_for_tot=1050e-9,
         verbose=True,
