@@ -240,41 +240,41 @@ def needle_cycle(
         num_of_layers = len(current.thickness)
 
         # 1) Аналитическая P-карта (по Тихонравову)
-        # positions, mf_best = analytic_excitation_map(
-        #     current, q_in, q_sub, qH, qL, kH, kL, dM_in_H_layer, dM_in_L_layer,
-        #     wavelengths, targets, pol, theta_inc, d_eps, num_of_layers, n_wavelengths
-        # )
+        positions, mf_best = analytic_excitation_map(
+            current, q_in, q_sub, qH, qL, kH, kL, dM_in_H_layer, dM_in_L_layer,
+            wavelengths, targets, pol, theta_inc, d_eps, num_of_layers, n_wavelengths
+        )
 
-        # # Лучшая точка вставки — по максимуму выигрыша
-        # idx = int(np.argmin(mf_best))
-        # if not np.isfinite(mf_best[idx]) or (mf_before - mf_best[idx]) <= 0.0:
-        #     # нет предсказанного улучшения
-        #     break
+        # Лучшая точка вставки — по максимуму выигрыша
+        idx = int(np.argmin(mf_best))
+        if not np.isfinite(mf_best[idx]) or (mf_before - mf_best[idx]) <= 0.0:
+            # нет предсказанного улучшения
+            break
 
-        # pos = int(positions[idx])
+        pos = int(positions[idx])
 
-        # # 2) Реальная вставка слоя толщиной d_init и пересборка стека
-        # th = current.thickness
+        # 2) Реальная вставка слоя толщиной d_init и пересборка стека
+        th = current.thickness
 
-        # start_flag = current.start_flag
+        start_flag = current.start_flag
 
-        # if pos == -1:                      # перед первым слоем
-        #     if start_flag == "H":
-        #         start_flag = "L"
-        #     else:
-        #         start_flag = "H"
-        #     th_new = np.insert(th, 0, d_init)
-        # elif pos == len(th):          # после последнего
-        #     th_new = np.append(th, d_init)
-        # else:                              # середина слоя pos
-        #     d1 = 0.5 * th[pos]; d2 = th[pos] - d1
-        #     th_new = np.concatenate([th[:pos], [d1, d_init, d2], th[pos+1:]])
+        if pos == -1:                      # перед первым слоем
+            if start_flag == "H":
+                start_flag = "L"
+            else:
+                start_flag = "H"
+            th_new = np.insert(th, 0, d_init)
+        elif pos == len(th):          # после последнего
+            th_new = np.append(th, d_init)
+        else:                              # середина слоя pos
+            d1 = 0.5 * th[pos]; d2 = th[pos] - d1
+            th_new = np.concatenate([th[:pos], [d1, d_init, d2], th[pos+1:]])
 
-        # current = make_stack(start_flag, th_new, nH_values, nL_values, cos_theta_in_H_layers, cos_theta_in_L_layers,
-        #                      q_in, q_sub, qH, qL, wavelengths, n_wavelengths, calculate_prefix_and_suffix_for_needle=False)
+        current = make_stack(start_flag, th_new, nH_values, nL_values, cos_theta_in_H_layers, cos_theta_in_L_layers,
+                             q_in, q_sub, qH, qL, wavelengths, n_wavelengths, calculate_prefix_and_suffix_for_needle=False)
 
-        # new_merit = rms_merit(q_in, q_sub, wavelengths, targets, pol, theta_inc, current.r, current.t, current.R, current.T)
-        # print("new merit function: "+str(new_merit))
+        new_merit = rms_merit(q_in, q_sub, wavelengths, targets, pol, theta_inc, current.r, current.t, current.R, current.T)
+        print("new merit function: "+str(new_merit))
 
         # 3) Локальная доводка толщин (необязательна, но полезна)
         current, mf_after = coordinate_descent_thicknesses(

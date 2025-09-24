@@ -86,4 +86,4 @@ def rms_merit_layers(
 
 
     resid_all = np.concatenate(errs_all, axis=1)  # (num_layers, N_total)
-    return np.sqrt(np.mean(resid_all, axis=1))    # (num_layers,)
+    return np.sqrt(np.mean(resid_all, axis=1, dtype=np.float64))    # (num_layers,)
