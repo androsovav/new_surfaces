@@ -105,19 +105,9 @@ def analytic_excitation_map(
 
     dr, dt = _dr_dt_from_dM_vec(M_total, q_in, q_sub, dM_total_changed)
 
-    print("dr")
-    print(np.shape(dr))
-    print("dt")
-    print(np.shape(dt))
-
     # Линейные поправки на толщину e
     r_new = stack.r + d_eps * dr
     t_new = stack.t + d_eps * dt
-
-    print("r_new")
-    print(np.shape(r_new))
-    print("t_new")
-    print(np.shape(t_new))
     # Энергетические коэффициенты до 1-го порядка
     R_new = np.abs(r_new)**2
     T_new = alpha * (np.abs(t_new)**2)
@@ -128,63 +118,8 @@ def analytic_excitation_map(
     print(np.shape(T_new))
     print("DEBUG shapes:", np.shape(r_new), np.shape(t_new), np.shape(R_new), np.shape(T_new))
     MF_new = rms_merit_layers(q_in, q_sub, wavelengths, targets, pol, theta_inc, r_new, t_new, R_new, T_new)
-    print(np.shape(MF_new))
-    quit()
 
-    for pos in positions:
-        # Выбор комплементарной «иглы» (H↔L) в этой позиции
-        if pos == -1:
-            ins = "L" if stack.start_flag == "H" else "H"
-        elif pos == num_of_layers:
-            if num_of_layers % 2 == 1:
-                ins = "L" if stack.start_flag == "H" else "H"
-            else:
-                ins = "H" if stack.start_flag == "H" else "L"
-        else:
-            if pos % 2 == 0:
-                ins = "L" if stack.start_flag == "H" else "H"
-            else:
-                ins = "H" if stack.start_flag == "H" else "L"
-
-        print(ins)
-
-        if ins == "H":
-            dM_layer = dM_in_H_layer
-        else:
-            dM_layer = dM_in_L_layer
-
-        # Префикс и суффикс (K,2,2) для выбранной позиции
-        if pos == -1:
-            pref, suff = I_K, M_total
-        elif pos == num_of_layers:
-            pref, suff = M_total, I_K
-        else:
-            pref = stack.prefix[:, :, pos, :]
-            suff = stack.suffix[:, :, pos, :]
-
-        # Полная вариация матрицы: dM_tot = pref ⋅ dM_layer ⋅ suff  (K,2,2)
-        dM_tot = np.einsum("kij,kjl,klm->kim", pref, dM_layer, suff)
-
-        # Производные амплитуд: dr, dt (вектор по λ)
-        dr, dt = _dr_dt_from_dM_vec(M_total, q_in, q_sub, dM_tot)
-
-        # Линейные поправки на толщину e
-        r_new = stack.r + d_eps * dr
-        t_new = stack.t + d_eps * dt
-        # Энергетические коэффициенты до 1-го порядка
-        R_new = np.abs(r_new)**2
-        T_new = alpha * (np.abs(t_new)**2)
-
-        MF_new = rms_merit(q_in, q_sub, wavelengths, targets, pol, theta_inc, r_new, t_new, R_new, T_new)
-
-        mf_best[pos] = MF_new
-    
-    print("positions")
-    print(positions)
-    print("mf_best")
-    print(mf_best)
-    quit()
-    return positions, mf_best
+    return positions, MF_new
 
 
 # ---------------------------
