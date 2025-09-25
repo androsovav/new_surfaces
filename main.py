@@ -36,7 +36,7 @@ def plot_stack_spectra(stack, wavelengths):
     plt.show()
 
 if __name__ == "__main__":
-    n_wavelengths = 3
+    n_wavelengths = 1001
     wavelengths = np.linspace(1000e-9, 1100e-9, n_wavelengths)
     quarter_at = 1050e-9
     n_inc_values = np.array([n_of(n_cauchy, 1.0, wl) for wl in wavelengths])
@@ -53,14 +53,15 @@ if __name__ == "__main__":
     cos_theta_in_L_layers = cos_theta_in_layer(nL_values, n_inc_values, theta_inc)
     q_in = q_parameter(n_inc_values, cos_theta_in_inc, pol)
     q_sub = q_parameter(n_sub_values, cos_theta_in_sub, pol)
+    alpha = np.real(q_sub/q_in)
     qH = q_parameter(nH_values, cos_theta_in_H_layers, pol)
     qL = q_parameter(nL_values, cos_theta_in_L_layers, pol)
     kH = 2.0 * np.pi * nH_values * cos_theta_in_H_layers / wavelengths
     kL = 2.0 * np.pi * nL_values * cos_theta_in_L_layers / wavelengths
     dM_in_H_layer = dM_layer_dd_at_zero(qH, kH, wavelengths)
     dM_in_L_layer = dM_layer_dd_at_zero(qL, kL, wavelengths)
-    thickness = np.array([dH, dL])
-    start_flag="H"
+    thickness = np.array([dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH])
+    start_flag="L"
 
     # неизменны для данной задачи
     q_in = q_parameter(n_inc_values, np.cos(theta_inc), pol)
@@ -87,6 +88,8 @@ if __name__ == "__main__":
     ))
     
     old_merit = rms_merit(q_in, q_sub, wavelengths, targets, pol, theta_inc, stack0.r, stack0.t, stack0.R, stack0.T)
+    print("old_MF")
+    print(old_merit)
     n_cands = [nH_values, nL_values]
     common_kwargs = dict(
         wavelengths=wavelengths,
@@ -102,16 +105,17 @@ if __name__ == "__main__":
         cos_theta_in_L_layers=cos_theta_in_L_layers,
         q_in=q_in,
         q_sub=q_sub,
+        alpha=alpha,
         qH=qH,
         qL=qL,
         kH=kH,
         kL=kL,
         dM_in_H_layer=dM_in_H_layer,
         dM_in_L_layer=dM_in_L_layer,
-        d_init=1e-10,
-        d_eps=1e-11,
-        coord_step_rel=3.0,
-        coord_min_step_rel=1.01,
+        d_init=1e-9,
+        d_eps=1e-10,
+        coord_step_rel=0.99,
+        coord_min_step_rel=0.01,
         coord_iters=1000,
         d_min=0.5e-9,
         max_steps=100,
@@ -129,5 +133,4 @@ if __name__ == "__main__":
     print("new_merit: "+str(rms_merit(q_in, q_sub, wavelengths, targets, pol, theta_inc, stack.r, stack.t, stack.R, stack.T)))
     print("info: "+str(info))
     print("needle_cycle time: "+str(t1-t0))
-    plot_stack_spectra(stack0, wavelengths)
     plot_stack_spectra(stack, wavelengths)
