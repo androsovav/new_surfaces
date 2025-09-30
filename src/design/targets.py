@@ -36,3 +36,17 @@ def combine_targets(*targets: dict) -> dict:
         for k, v in t.items():
             combined[k] = v
     return combined
+
+def target_T_bandpoint(wavelengths: np.ndarray, wl0: float, halfwidth: float,
+                       T_center: float = 0.001, sigma_center: float = 0.001,
+                       sigma_band: float = 0.01):
+    """
+    Цель: в точке λ0 задать T≈T_center (жёстко), а во всей полосе ±halfwidth — мягкое стягивание T вниз.
+    Подойдёт, чтобы локальная доводка (по одной поляризации) не «осиротела».
+    """
+    target = np.zeros_like(wavelengths, dtype=float)
+    sigma  = np.full_like(wavelengths, sigma_band, dtype=float)
+    idx0 = int(np.argmin(np.abs(wavelengths - wl0)))
+    target[idx0] = T_center
+    sigma[idx0]  = sigma_center
+    return {"T": {"target": target, "sigma": sigma}}

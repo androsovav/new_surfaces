@@ -1,3 +1,4 @@
 /venv
+/src/core/merit_extra.py
 /__pycache__
 *.py[cod]

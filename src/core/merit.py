@@ -9,11 +9,7 @@ def _phase(z: np.ndarray | complex) -> np.ndarray:
     return np.angle(z)
 
 def rms_merit(
-    q_in: np.ndarray, q_sub,
-    wavelengths: np.ndarray,
-    targets: dict[str, dict[str, np.ndarray]],
-    pol: Literal["s","p"],
-    theta_inc: np.ndarray,
+    constants: dict,
     r: np.ndarray = np.array([]),
     t: np.ndarray = np.array([]),
     R: np.ndarray = np.array([]),
@@ -24,21 +20,21 @@ def rms_merit(
     """
     errs = []
 
-    if "R" in targets:
-        resid = (R - targets["R"]["target"]) / targets["R"]["sigma"]
+    if "R" in constants["targets"]:
+        resid = (R - constants["targets"]["R"]["target"]) / constants["targets"]["R"]["sigma"]
         errs.append(resid**2)
-    if "T" in targets:
-        resid = (T - targets["T"]["target"]) / targets["T"]["sigma"]
+    if "T" in constants["targets"]:
+        resid = (T - constants["targets"]["T"]["target"]) / constants["targets"]["T"]["sigma"]
         errs.append(resid**2)
 
-    if "phase_t" in targets or "phase_r" in targets:
-        if pol == "u":
+    if "phase_t" in constants["targets"] or "phase_r" in constants["targets"]:
+        if constants["pol"] == "u":
             raise ValueError("Фазовые цели нельзя задавать при pol='u'; выберите 's' или 'p'.")
-        if "phase_t" in targets:
-            resid = (_phase(t) - targets["phase_t"]["target"]) / targets["phase_t"]["sigma"]
+        if "phase_t" in constants["targets"]:
+            resid = (_phase(t) - constants["targets"]["phase_t"]["target"]) / constants["targets"]["phase_t"]["sigma"]
             errs.append(resid**2)
-        if "phase_r" in targets:
-            resid = (_phase(r) - targets["phase_r"]["target"]) / targets["phase_r"]["sigma"]
+        if "phase_r" in constants["targets"]:
+            resid = (_phase(r) - constants["targets"]["phase_r"]["target"]) / constants["targets"]["phase_r"]["sigma"]
             errs.append(resid**2)
 
     if not errs:
@@ -47,11 +43,7 @@ def rms_merit(
     return float(np.sqrt(np.mean(resid_all)))
 
 def rms_merit_layers(
-    q_in: np.ndarray, q_sub: np.ndarray,
-    wavelengths: np.ndarray,
-    targets: dict[str, dict[str, np.ndarray]],
-    pol: str,
-    theta_inc: float,
+    constants: dict,
     r: np.ndarray,
     t: np.ndarray,
     R: np.ndarray,
@@ -64,21 +56,21 @@ def rms_merit_layers(
     """
     errs_all = []
 
-    if "R" in targets:
-        resid = (R - targets["R"]["target"][None, :]) / targets["R"]["sigma"][None, :]
+    if "R" in constants["targets"]:
+        resid = (R - constants["targets"]["R"]["target"][None, :]) / constants["targets"]["R"]["sigma"][None, :]
         errs_all.append(resid**2)
-    if "T" in targets:
-        resid = (T - targets["T"]["target"][None, :]) / targets["T"]["sigma"][None, :]
+    if "T" in constants["targets"]:
+        resid = (T - constants["targets"]["T"]["target"][None, :]) / constants["targets"]["T"]["sigma"][None, :]
         errs_all.append(resid**2)
 
-    if "phase_t" in targets or "phase_r" in targets:
-        if pol == "u":
+    if "phase_t" in constants["targets"] or "phase_r" in constants["targets"]:
+        if constants["pol"] == "u":
             raise ValueError("Фазовые цели нельзя задавать при pol='u'.")
-        if "phase_t" in targets:
-            resid = (np.angle(t) - targets["phase_t"]["target"][None, :]) / targets["phase_t"]["sigma"][None, :]
+        if "phase_t" in constants["targets"]:
+            resid = (np.angle(t) - constants["targets"]["phase_t"]["target"][None, :]) / constants["targets"]["phase_t"]["sigma"][None, :]
             errs_all.append(resid**2)
-        if "phase_r" in targets:
-            resid = (np.angle(r) - targets["phase_r"]["target"][None, :]) / targets["phase_r"]["sigma"][None, :]
+        if "phase_r" in constants["targets"]:
+            resid = (np.angle(r) - constants["targets"]["phase_r"]["target"][None, :]) / constants["targets"]["phase_r"]["sigma"][None, :]
             errs_all.append(resid**2)
 
     if not errs_all:

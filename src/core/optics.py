@@ -36,14 +36,14 @@ def n_cauchy(A:float, wl: float) -> complex:
     B, C = 0.004, 0.0001  # коэффициенты
     return A + B / wl_um**2 + C / wl_um**4
 
-def cos_theta_in_layer(n_layer: complex, n_incident: complex, theta_incident: float) -> complex:
+def cos_theta_in_layer(n_layer: complex, constants: dict) -> complex:
     """
     Функция расчета косинуса угла распространения света в слое по закону Снеллиуса
     """
-    if theta_incident == 0.0:
+    if constants["theta_inc"] == 0.0:
         return 1.0
-    sin_ti = np.sin(theta_incident)
-    sin_tj = (n_incident * sin_ti) / n_layer
+    sin_ti = np.sin(constants["theta_inc"])
+    sin_tj = (constants["n_inc"] * sin_ti) / n_layer
     return np.sqrt(1.0 - sin_tj**2)
 
 # В optics.py добавьте векторные версии функций
@@ -51,9 +51,9 @@ def phi_parameter(n: np.ndarray, d: np.ndarray, cos_theta: np.ndarray, wavelengt
     """Векторная версия phi_parameter"""
     return (2.0 * np.pi * n * cos_theta / wavelengths) * d[:, None]
 
-def q_parameter(n: np.ndarray, cos_theta: np.ndarray, pol: Literal["s","p"]) -> np.ndarray:
+def q_parameter(n: np.ndarray, cos_theta: np.ndarray, constants: dict) -> np.ndarray:
     """Векторная версия q_parameter"""
-    return n * cos_theta if pol == "s" else (cos_theta / n)
+    return n * cos_theta if constants["pol"] == "s" else (cos_theta / n)
 
 def make_M(sphi: np.ndarray, cphi: np.ndarray, q: np.ndarray, num_of_layers: int, num_of_wavelengths: int) -> np.ndarray:
     """Векторная версия make_M"""
@@ -64,51 +64,37 @@ def make_M(sphi: np.ndarray, cphi: np.ndarray, q: np.ndarray, num_of_layers: int
     M[1, 1] = cphi
     return M
 
-def rt_amplitudes(M: np.ndarray, q_in: np.ndarray, q_sub: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def rt_amplitudes(constants: dict, M: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """
     Вычисляет амплитуды r, t для всего стека.
     M – матрицы стека (2,2,nλ)
     q_in, q_sub – параметры среды и подложки (nλ,)
     """
     A, B, C, D = M[0,0], M[0,1], M[1,0], M[1,1]
-    X = A + B*q_sub
-    Y = C + D*q_sub
-    denom = X*q_in + Y
-    r = (X*q_in - Y) / denom
-    t = (2*q_in) / denom
+    X = A + B*constants["q_sub"]
+    Y = C + D*constants["q_sub"]
+    denom = X*constants["q_in"] + Y
+    r = (X*constants["q_in"] - Y) / denom
+    t = (2*constants["q_in"]) / denom
     return r, t
 
-def RT_coeffs(r: np.ndarray, t: np.ndarray, q_in: np.ndarray, q_sub: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def RT_coeffs(constants: dict, r: np.ndarray, t: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """
     Вычисляет коэффициенты отражения и пропускания (энергетические).
     """
     R = np.abs(r)**2
-    T = (np.real(q_sub) / np.real(q_in)) * np.abs(t)**2
+    T = (np.real(constants["q_sub"]) / np.real(constants["q_in"])) * np.abs(t)**2
     return R, T
 
-def dM_layer_dd_at_zero(q: np.ndarray, k: np.ndarray, wavelengths: np.ndarray) -> np.ndarray:
+def dM_layer_dd_at_zero(q: np.ndarray, k: np.ndarray, constants: dict) -> np.ndarray:
     """
     ∂M_layer/∂d |_{d=0} для всех λ: форма (2,2,K).
     Здесь k = 2π n cosθ / λ; при d→0: cosφ≈1, sinφ≈φ=k d → dM/dd:
       d/d(d) [ [cosφ, i sinφ / q], [i q sinφ, cosφ] ]_{d=0}
       = [ [0, i k / q], [i q k, 0] ].
     """
-    K = len(wavelengths)
+    K = len(constants["wavelengths"])
     dM = np.zeros((2, 2, K), dtype=complex)
     dM[0, 1, :] = 1j * k / q
     dM[1, 0, :] = 1j * q * k
     return dM
-
-
-def RT_single(stack: Stack, q_in, q_sub, wl: float, theta_inc: float, pol: Literal["s","p"]) -> Tuple[float, float]:
-    r, t = rt_amplitudes(stack, q_in, q_sub, wl, theta_inc, pol)
-    R = np.abs(r)**2
-    T = np.real(q_sub/q_in) * np.abs(t)**2
-    return float(R), float(T)
-
-def RT(stack: Stack, q_in, q_sub, wavelengths: np.ndarray, theta_inc: float, pol: Literal["s","p"]) -> Tuple[np.ndarray, np.ndarray]:
-    R = np.empty_like(wavelengths, dtype=float)
-    T = np.empty_like(wavelengths, dtype=float)
-    for i, wl in enumerate(wavelengths):
-        R[i], T[i] = RT_single(stack, q_in, q_sub, float(wl), theta_inc, pol)
-    return R, T
