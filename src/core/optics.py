@@ -11,19 +11,19 @@ NType = Union[float, complex, Callable[[float, float], complex]]   # показ�
 class Stack:
     thickness: np.ndarray
     start_flag: Literal["H", "L"]
-    prefix: np.ndarray     # префиксное произведение (3D массив)
-    suffix: np.ndarray     # суффиксное произведение (3D массив)
-    M: np.ndarray       # M всего стэка (3D массив)
+    prefix: dict[Pol, np.ndarray]     # префиксное произведение (3D массив)
+    suffix: dict[Pol, np.ndarray]     # суффиксное произведение (3D массив)
+    M: dict[Pol, np.ndarray]       # M всего стэка (3D массив)
     phi: np.ndarray         # фазовый набег слоев (массив)
     sphi: np.ndarray        # синус фи слоев (массив)
     cphi: np.ndarray        # косинус фи слоев (массив)
-    M_layers: np.ndarray       # M слоев, то есть массив матриц
-    r: np.ndarray
-    t: np.ndarray
-    R: np.ndarray
-    T: np.ndarray
-    q: np.ndarray
-
+    M_layers: dict[Pol, np.ndarray]       # M слоев, то есть массив матриц
+    r: dict[Pol, np.ndarray]
+    t: dict[Pol, np.ndarray]
+    R: dict[Pol, np.ndarray]
+    T: dict[Pol, np.ndarray]
+    q: dict[Pol, np.ndarray]
+    
 def n_of(nspec: NType, A: float, wl: float) -> complex:
     """
     Функция, которая принимает на вход NType и возвращает одно комплексное значение показателя преломления среды
@@ -64,27 +64,41 @@ def make_M(sphi: np.ndarray, cphi: np.ndarray, q: np.ndarray, num_of_layers: int
     M[1, 1] = cphi
     return M
 
-def rt_amplitudes(constants: dict, M: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def rt_amplitudes(constants: dict, M: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     """
-    Вычисляет амплитуды r, t для всего стека.
-    M – матрицы стека (2,2,nλ)
-    q_in, q_sub – параметры среды и подложки (nλ,)
+    Вычисляет амплитуды r, t для каждой поляризации.
+    Всегда возвращает словарь {'s': r_s, 'p': r_p}.
     """
-    A, B, C, D = M[0,0], M[0,1], M[1,0], M[1,1]
-    X = A + B*constants["q_sub"]
-    Y = C + D*constants["q_sub"]
-    denom = X*constants["q_in"] + Y
-    r = (X*constants["q_in"] - Y) / denom
-    t = (2*constants["q_in"]) / denom
-    return r, t
+    r, t = {}, {}
 
-def RT_coeffs(constants: dict, r: np.ndarray, t: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    for pol, M_pol in M.items():
+        A, B, C, D = M_pol[0,0], M_pol[0,1], M_pol[1,0], M_pol[1,1]
+        q_in  = constants["q_in"][pol]
+        q_sub = constants["q_sub"][pol]
+        X = A + B * q_sub
+        Y = C + D * q_sub
+        denom = X * q_in + Y
+        r[pol] = (X * q_in - Y) / denom
+        t[pol] = (2 * q_in) / denom
+
+    return {"r": r, "t": t}
+
+
+
+def RT_coeffs(constants: dict,
+              r: dict[str, np.ndarray],
+              t: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     """
-    Вычисляет коэффициенты отражения и пропускания (энергетические).
+    Энергетические коэффициенты для всех поляризаций.
     """
-    R = np.abs(r)**2
-    T = (np.real(constants["q_sub"]) / np.real(constants["q_in"])) * np.abs(t)**2
-    return R, T
+    R, T = {}, {}
+    for pol in r.keys():
+        q_in  = constants["q_in"][pol]
+        q_sub = constants["q_sub"][pol]
+        R[pol] = np.abs(r[pol])**2
+        T[pol] = (np.real(q_sub) / np.real(q_in)) * np.abs(t[pol])**2
+    return {"R": R, "T": T}
+
 
 def dM_layer_dd_at_zero(q: np.ndarray, k: np.ndarray, constants: dict) -> np.ndarray:
     """

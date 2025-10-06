@@ -4,99 +4,156 @@ import time
 from src.core.optics import n_of, n_cauchy, q_parameter, cos_theta_in_layer, dM_layer_dd_at_zero, RT_coeffs
 from src.core.merit import rms_merit
 from src.design.design import make_stack
-from src.design.targets import target_AR, combine_targets, target_bandpass
+from src.design.targets import combine_targets, target_bandpass, target_ratio_RsRp
 from src.algorithms.needle import needle_cycle
 from src.engine.report import print_report
 import matplotlib.pyplot as plt
 
-def plot_stack_spectra(stack, constants):
-    wl_nm = constants["wavelengths"] * 1e9  # перевод в нм для удобства
+def plot_stack_spectra(stack, constants, show_ratio: bool = True):
+    """
+    Рисует спектры R и T для каждой доступной поляризации (s/p),
+    а также кривую отношения Rs/Rp и её целевую (если задана цель ratio_RsRp).
+    Ожидается новая архитектура:
+      stack.R = {"s": Rs(λ), "p": Rp(λ)}, аналогично T/r/t.
+      constants["targets"] = {"s": {...}, "p": {...}, "ratio_RsRp": {...}}
+    """
+    wl_nm = constants["wavelengths"] * 1e9
+    pols = [p for p in ("s", "p") if p in stack.R]
 
-    # fig, axs = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+    # --- Фигура 1: R и T по поляризациям ---
+    plt.figure(figsize=(9, 6))
+    # R
+    for pol in pols:
+        plt.plot(wl_nm, stack.R[pol], label=f"R{pol}")
+    # T
+    for pol in pols:
+        plt.plot(wl_nm, stack.T[pol], linestyle="--", label=f"T{pol}")
 
-    # # Энергетические коэффициенты
-    # axs.plot(wl_nm, stack.R, label="R (Reflectance)")
-    # axs.plot(wl_nm, stack.T, label="T (Transmittance)")
-    # axs.set_ylabel("R, T")
-    # axs.legend()
-    # axs.grid(True)
-
-    # # Амплитудные коэффициенты (модуль и фаза)
-    # axs[1].plot(wl_nm, np.abs(stack.r), label="|r|")
-    # axs[1].plot(wl_nm, np.abs(stack.t), label="|t|")
-    # axs[1].plot(wl_nm, np.angle(stack.r), "--", label="arg(r)")
-    # axs[1].plot(wl_nm, np.angle(stack.t), "--", label="arg(t)")
-    # axs[1].set_xlabel("Wavelength (nm)")
-    # axs[1].set_ylabel("Amplitude / Phase")
-    # axs[1].legend()
-    # axs[1].grid(True)
-
-    plt.figure(figsize=(8, 5))
-    plt.plot(constants["wavelengths"] * 1e9, stack.R, label="R (Reflectance)")
-    plt.plot(constants["wavelengths"] * 1e9, stack.T, label="T (Transmittance)")
-    targets = constants["targets"]
-
-    # если заданы цели
-    if targets is not None:
-        if "R" in targets:
-            plt.plot(constants["wavelengths"] * 1e9,
-                     targets["R"]["target"],
-                     "r--", label="R target")
-        if "T" in targets:
-            plt.plot(constants["wavelengths"] * 1e9,
-                     targets["T"]["target"],
-                     "g--", label="target")
+    # цели по поляризациям (если заданы)
+    tg = constants.get("targets", {})
+    for pol in pols:
+        tp = tg.get(pol, {})
+        if "R" in tp:
+            plt.plot(wl_nm, tp["R"]["target"], linestyle=":", label=f"R{pol} target")
+        if "T" in tp:
+            plt.plot(wl_nm, tp["T"]["target"], linestyle=":", label=f"T{pol} target")
 
     plt.xlabel("Wavelength (nm)")
     plt.ylabel("Coefficient")
-    plt.title("Spectra of multilayer stack")
-    plt.legend()
+    plt.title("Spectra (R, T) by polarization")
     plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+
+    # --- Фигура 2: отношение Rs/Rp (по желанию и если есть обе поляризации) ---
+    if show_ratio and all(p in stack.R for p in ("s", "p")):
+        plt.figure(figsize=(9, 4))
+        ratio = (stack.R["s"]) / np.maximum(stack.R["p"], 1e-12)
+        plt.plot(wl_nm, ratio, label="Rs/Rp")
+
+        # цель по ratio, если задана
+        if "ratio_RsRp" in tg:
+            plt.plot(wl_nm, tg["ratio_RsRp"]["target"], linestyle=":", label="(Rs/Rp) target")
+
+        plt.xlabel("Wavelength (nm)")
+        plt.ylabel("Rs / Rp")
+        plt.title("Polarization ratio")
+        plt.grid(True)
+        plt.legend()
+        plt.tight_layout()
+
     plt.show()
 
 if __name__ == "__main__":
+    # === Общие константы ===
     constants = dict()
-
     constants["n_wavelengths"] = 1001
-    constants["wavelengths"] = np.linspace(1000e-9, 1100e-9, constants["n_wavelengths"])
-    quarter_at = 1050e-9
+    constants["wavelengths"] = np.linspace(623e-9, 643e-9, constants["n_wavelengths"])
+    quarter_at = 633e-9
+
+    # Показатели преломления
     constants["n_inc"] = np.array([n_of(n_cauchy, 1.0, wl) for wl in constants["wavelengths"]])
     constants["n_sub"] = np.array([n_of(n_cauchy, 1.52, wl) for wl in constants["wavelengths"]])
-    constants["nH"] = np.array([n_of(n_cauchy, 2.35, wl) for wl in constants["wavelengths"]])
-    constants["nL"] = np.array([n_of(n_cauchy, 1.45, wl) for wl in constants["wavelengths"]])
-    dH = (quarter_at / (4.0 * np.real(n_of(n_cauchy, 2.35, wl=1050e-9))))
-    dL = (quarter_at / (4.0 * np.real(n_of(n_cauchy, 1.45, wl=1050e-9))))
-    constants["pol"] = "s"
-    constants["theta_inc"]=0
+    constants["nH"]    = np.array([n_of(n_cauchy, 2.35, wl) for wl in constants["wavelengths"]])
+    constants["nL"]    = np.array([n_of(n_cauchy, 1.45, wl) for wl in constants["wavelengths"]])
+
+    # Геометрия
+    constants["theta_inc"] = 43 * np.pi / 180  # пример угла, можно изменить
     constants["cos_theta_in_inc"] = cos_theta_in_layer(constants["n_inc"], constants)
     constants["cos_theta_in_sub"] = cos_theta_in_layer(constants["n_sub"], constants)
     constants["cos_theta_in_H_layers"] = cos_theta_in_layer(constants["nH"], constants)
     constants["cos_theta_in_L_layers"] = cos_theta_in_layer(constants["nL"], constants)
-    constants["q_in"] = q_parameter(constants["n_inc"], constants["cos_theta_in_inc"], constants)
-    constants["q_sub"] = q_parameter(constants["n_sub"], constants["cos_theta_in_sub"], constants)
-    constants["alpha"] = np.real(constants["q_sub"]/constants["q_in"])
-    constants["qH"] = q_parameter(constants["nH"], constants["cos_theta_in_H_layers"], constants)
-    constants["qL"] = q_parameter(constants["nL"], constants["cos_theta_in_L_layers"], constants)
-    constants["kH"] = 2.0 * np.pi * constants["nH"] * constants["cos_theta_in_H_layers"] / constants["wavelengths"]
-    constants["kL"] = 2.0 * np.pi * constants["nL"] * constants["cos_theta_in_L_layers"] / constants["wavelengths"]
-    constants["dM_in_H_layer"] = dM_layer_dd_at_zero(constants["qH"], constants["kH"], constants)
-    constants["dM_in_L_layer"] = dM_layer_dd_at_zero(constants["qL"], constants["kL"], constants)
-    thickness = np.array([dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL])
-    start_flag="H"
 
-    # неизменны для данной задачи
-    q_in = q_parameter(constants["n_inc"], np.cos(constants["theta_inc"]), constants)
-    q_sub = q_parameter(constants["n_sub"], cos_theta_in_layer(constants["n_sub"], constants), constants)
+    # Толщины четвертьволновые
+    dH = (quarter_at / (4.0 * np.real(n_of(n_cauchy, 2.35, wl=633e-9))))
+    dL = (quarter_at / (4.0 * np.real(n_of(n_cauchy, 1.45, wl=633e-9))))
+    thickness = np.tile([dH, dL], 20)  # например, 40 слоев
+    start_flag = "H"
+
+    # === Поляризационно-зависимые параметры ===
+    constants["q_in"]  = {}
+    constants["q_sub"] = {}
+    constants["alpha"] = {}
+    constants["qH"] = {}
+    constants["qL"] = {}
+    constants["kH"] = {}
+    constants["kL"] = {}
+    constants["dM_in_H_layer"] = {}
+    constants["dM_in_L_layer"] = {}
+
+    for pol in ["s", "p"]:
+        # локальная копия constants с выбранной поляризацией
+        const_pol = {**constants, "pol": pol}
+
+        # параметры входа и подложки
+        q_in  = q_parameter(constants["n_inc"], constants["cos_theta_in_inc"], const_pol)
+        q_sub = q_parameter(constants["n_sub"], constants["cos_theta_in_sub"], const_pol)
+
+        constants["q_in"][pol] = q_in
+        constants["q_sub"][pol] = q_sub
+        constants["alpha"][pol] = np.real(q_sub / q_in)
+
+        # параметры слоев
+        qH = q_parameter(constants["nH"], constants["cos_theta_in_H_layers"], const_pol)
+        qL = q_parameter(constants["nL"], constants["cos_theta_in_L_layers"], const_pol)
+
+        constants["qH"][pol] = qH
+        constants["qL"][pol] = qL
+
+        constants["kH"][pol] = 2.0 * np.pi * constants["nH"] * constants["cos_theta_in_H_layers"] / constants["wavelengths"]
+        constants["kL"][pol] = 2.0 * np.pi * constants["nL"] * constants["cos_theta_in_L_layers"] / constants["wavelengths"]
+
+        constants["dM_in_H_layer"][pol] = dM_layer_dd_at_zero(qH, constants["kH"][pol], const_pol)
+        constants["dM_in_L_layer"][pol] = dM_layer_dd_at_zero(qL, constants["kL"][pol], const_pol)
+    thickness = np.array([dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL, dH, dL])
+    start_flag="L"
 
     stack0 = make_stack(constants, start_flag, thickness, calculate_prefix_and_suffix_for_needle=True)
 
-    constants["targets"] = combine_targets(target_bandpass(
-        constants["wavelengths"],
-        passbands=[(1040e-9, 1060e-9)],  # диапазон прозрачности
-        sigma_pass=0.2,  # sigma в полосе
-        sigma_stop=0.2   # sigma вне полосы
-    ))
-    
+    wl0 = 633e-9
+    half = 5e-9
+
+    constants["targets"] = combine_targets(
+        # Полное пропускание ~0.1% (T≈0.001) в полосе ±5 нм — для обеих поляризаций
+        target_bandpass(
+            wavelengths = constants["wavelengths"],
+            passbands   = [(wl0 - half, wl0 + half)],
+            T_in_pass   = 0.001,
+            sigma_pass  = 2e-4,   # жёсткий штраф внутри полосы
+            T_out       = 0.0,
+            sigma_stop  = np.inf, # вне полосы без штрафа
+            pols        = ("s","p")
+        ),
+        # Минимизируем Rs/Rp в той же полосе
+        target_ratio_RsRp(
+            wavelengths = constants["wavelengths"],
+            bands       = [(wl0 - half, wl0 + half)],
+            ratio_target= 0.0,    # «как можно меньше»
+            sigma_in    = 0.05,   # подстрой под желаемый вес
+            sigma_out   = np.inf
+        )
+    )
+
     old_merit = rms_merit(constants, stack0.r, stack0.t, stack0.R, stack0.T)
     print("old_MF")
     print(old_merit)
@@ -112,7 +169,7 @@ if __name__ == "__main__":
     constants["min_rel_improv"]=1e-4
     constants["max_layers"]=150
     constants["max_tot_nmopt"]=1e9
-    constants["wl_ref_for_tot"]=1050e-9
+    constants["wl_ref_for_tot"]=633e-9
     constants["verbose"]=True
     constants["log_timing"] = True
     t0 = time.perf_counter()
@@ -126,4 +183,4 @@ if __name__ == "__main__":
     for i in range(len(stack.thickness)):
         print(str(round(stack.thickness[i]/(1e-9), 3)))
     print("needle_cycle time: "+str(t1-t0))
-    plot_stack_spectra(stack, constants)
+    plot_stack_spectra(stack, constants, show_ratio=True)
